@@ -3,20 +3,20 @@ const SUPABASE_URL = "https://biqwfqkuhebxcfucangt.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcXdmcWt1aGVieGNmdWNhbmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzNzM5NzQsImV4cCI6MjA4MTk0OTk3NH0.QkASAl8yzXfxVq0b0FdkXHTOpblldr2prCnImpV8ml8";
 
 const supabaseClient = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY,
-  {
-    auth: {
-      persistSession: false,   // 🚫 do NOT restore last session
-      autoRefreshToken: false,
-      detectSessionInUrl: false
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    {
+        auth: {
+            persistSession: false,   // 🚫 do NOT restore last session
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+        }
     }
-  }
 );
 
 // 2️⃣ Force logout on every page load (refresh)
 window.addEventListener("load", () => {
-  sessionStorage.removeItem('sims_user');
+    sessionStorage.removeItem('sims_user');
 });
 
 // ==================== USER MANAGEMENT ====================
@@ -63,7 +63,7 @@ const appState = {
 
 // Table options
 const tableOptions = [
-    { key: 'inspection_boxes', name: 'Inspection Data' },
+    { key: 'inspection_boxes', name: 'NOV 2025' },
     { key: 'jan_2026_inspection_boxes', name: 'JAN 2026' }
 ];
 
@@ -120,7 +120,7 @@ elements.normalPackCard.addEventListener('click', () => {
 
 // ==================== AUTHENTICATION ====================
 function checkAuthentication() {
-    const storedUser = sessionStorage.getItem('sims_user'); // ✅ CHANGED
+    const storedUser = sessionStorage.getItem('sims_user');
     if (!storedUser) {
         window.location.href = 'login.html';
         return false;
@@ -132,7 +132,7 @@ function checkAuthentication() {
 
         if (!USER_CREDENTIALS[email]) {
             alert('Your email is not authorized.');
-            sessionStorage.removeItem('sims_user'); // ✅ CHANGED
+            sessionStorage.removeItem('sims_user');
             window.location.href = 'login.html';
             return false;
         }
@@ -152,7 +152,7 @@ function checkAuthentication() {
         return true;
     } catch (err) {
         console.error('Auth error:', err);
-        sessionStorage.removeItem('sims_user'); // ✅ CHANGED
+        sessionStorage.removeItem('sims_user');
         window.location.href = 'login.html';
         return false;
     }
@@ -413,7 +413,7 @@ window.changeUserRole = function (email, newRole) {
         userEmail: appState.currentUser?.email || 'UNKNOWN',
         action: 'USER_ROLE_CHANGED',
         details: `Changed ${email} role to ${newRole}`
-    });    
+    });
     renderUsersList();
 };
 
@@ -1380,6 +1380,69 @@ function setupEventListeners() {
     elements.filesSelect.addEventListener('change', async () => {
         appState.activeTable = elements.filesSelect.value;
         await loadFromSupabase();
+    });
+
+    elements.filesSelect.addEventListener('change', () => {
+        const key = elements.filesSelect.value;
+        if (key && appState.files[key]) {
+            setActiveFile(key);
+        }
+    });
+
+    elements.fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data);
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+            // Normalize columns
+            const normalizedRows = rows.map(row => {
+                const out = {};
+                EXPECTED_COLS.forEach(col => {
+                    out[col] = row[col] ?? '';
+                });
+                return out;
+            });
+
+            // Use the file name as the key
+            const key = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+
+            appState.files[key] = {
+                name: file.name,
+                workbook,
+                sheetName,
+                rows: normalizedRows,
+                columns: EXPECTED_COLS.slice()
+            };
+
+            // Add to dropdown
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = file.name;
+            elements.filesSelect.appendChild(option);
+
+            // Set uploaded file as active
+            setActiveFile(key);
+
+            logAudit({
+                userEmail: appState.currentUser?.email || 'UNKNOWN',
+                action: 'FILE_UPLOADED',
+                details: `Uploaded file: ${file.name}`,
+                tableName: key
+            });
+
+            alert(`✅ File "${file.name}" uploaded successfully!`);
+        } catch (err) {
+            console.error('File upload failed:', err);
+            alert('❌ Failed to upload file. Make sure it is a valid Excel file.');
+        } finally {
+            elements.fileInput.value = ''; // reset input
+        }
     });
 }
 
