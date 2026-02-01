@@ -2,9 +2,35 @@
 const SUPABASE_URL = "https://biqwfqkuhebxcfucangt.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcXdmcWt1aGVieGNmdWNhbmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzNzM5NzQsImV4cCI6MjA4MTk0OTk3NH0.QkASAl8yzXfxVq0b0FdkXHTOpblldr2prCnImpV8ml8";
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { storage: sessionStorage } // <-- use sessionStorage instead of default localStorage
+});
 
-// Expected columns for data normalization
+// ==================== USER MANAGEMENT ====================
+const MASTER_ADMIN = "adhammorsy2311@gmail.com";
+
+let USER_CREDENTIALS = {
+    "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
+    "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" }
+};
+
+function loadUserCredentials() {
+    const stored = localStorage.getItem('sims_user_credentials');
+    if (stored) {
+        try {
+            USER_CREDENTIALS = JSON.parse(stored);
+        } catch (e) {
+            console.error('Failed to load user credentials:', e);
+        }
+    }
+}
+
+function saveUserCredentials() {
+    localStorage.setItem('sims_user_credentials', JSON.stringify(USER_CREDENTIALS));
+}
+
+loadUserCredentials();
+
 const EXPECTED_COLS = [
     'id', 'shipment', 'NO', 'ContainerNum', 'BoxNum', 'Container',
     'BoxName', 'ItemCount', 'Kits', 'Factory', 'REMARKS',
@@ -18,57 +44,45 @@ const appState = {
     isAuthenticated: false,
     files: {},
     activeKey: null,
-    charts: {
-        progress: null,
-        container: null,
-        daily: null
-    }
+    charts: { progress: null, container: null, daily: null },
+    activeTable: 'inspection_boxes'
 };
+
+// Table options
+const tableOptions = [
+    { key: 'inspection_boxes', name: 'Inspection Data' },
+    { key: 'jan_2026_inspection_boxes', name: 'JAN 2026' }
+];
 
 // ==================== DOM ELEMENTS ====================
 const elements = {
-    // Main sections
     dashboard: document.getElementById('dashboard'),
-
-    // User info
     userEmail: document.getElementById('userEmail'),
     userRole: document.getElementById('userRole'),
     logoutBtn: document.getElementById('logoutBtn'),
-
-    // File management
     filesSelect: document.getElementById('filesSelect'),
     fileInput: document.getElementById('fileInput'),
     uploadLabel: document.getElementById('uploadLabel'),
     refreshBtn: document.getElementById('refreshBtn'),
     exportBtn: document.getElementById('exportBtn'),
     viewAuditBtn: document.getElementById('viewAuditBtn'),
-
-    // Filters
     shipmentFilter: document.getElementById('shipmentFilter'),
     factoryFilter: document.getElementById('factoryFilter'),
     containerFilter: document.getElementById('containerFilter'),
     statusFilter: document.getElementById('statusFilter'),
     searchInput: document.getElementById('searchInput'),
     clearFiltersBtn: document.getElementById('clearFiltersBtn'),
-
-    // Summary
     summaryWrap: document.getElementById('summaryWrap'),
     rowsCount: document.getElementById('rowsCount'),
     multipackCard: document.getElementById('multipackCard'),
     normalPackCard: document.getElementById('normalPackCard'),
     multipackCount: document.getElementById('multipackCount'),
     normalCount: document.getElementById('normalCount'),
-
-    // Bulk actions
     bulkActionsSection: document.getElementById('bulkActionsSection'),
     applyRemark: document.getElementById('applyRemark'),
     applyAllBtn: document.getElementById('applyAllBtn'),
-
-    // Table
     tableHead: document.getElementById('tableHead'),
     tableBody: document.getElementById('tableBody'),
-
-    // Modals
     auditModal: document.getElementById('auditModal'),
     closeAuditModal: document.getElementById('closeAuditModal'),
     auditLogContent: document.getElementById('auditLogContent'),
@@ -78,61 +92,124 @@ const elements = {
     filterAuditBtn: document.getElementById('filterAuditBtn')
 };
 
-// ==================== AUTHENTICATION ====================
-async function checkAuthentication() {
-    const { data: { session } } = await supabaseClient.auth.getSession();
+// ==================== MULTIPACK / NORMAL CARD CLICK LISTENERS ====================
+elements.multipackCard.addEventListener('click', () => {
+    elements.statusFilter.value = 'all'; // reset status filter
+    const rows = getFilteredRows().filter(r => Number(r.ItemCount ?? 0) > 1);
+    renderTable(rows); // render only multipacks
+});
 
-    if (!session?.user) {
+elements.normalPackCard.addEventListener('click', () => {
+    elements.statusFilter.value = 'all'; // reset status filter
+    const rows = getFilteredRows().filter(r => Number(r.ItemCount ?? 0) <= 1);
+    renderTable(rows); // render only normal packs
+});
+
+// ==================== AUTHENTICATION ====================
+function checkAuthentication() {
+    const storedUser = localStorage.getItem('sims_user');
+    if (!storedUser) {
         window.location.href = 'login.html';
         return false;
     }
 
-    appState.currentUser = session.user;
-    appState.isAuthenticated = true;
-
-    await checkUserRole(session.user);
-    updateUIForUser();
-
-    return true;
-}
-
-async function checkUserRole(user) {
     try {
-        const { data, error } = await supabaseClient
-            .from('user_roles')
-            .select('role, approved')
-            .eq('user_id', user.id)
-            .single();
+        const userData = JSON.parse(storedUser);
+        const email = userData.email;
 
-        if (error || !data) {
-            console.error('Error fetching role:', error);
-            appState.currentRole = 'viewer';
-            return;
-        }
-
-        if (!data.approved) {
-            alert('Your account is pending approval. Please contact an administrator.');
-            await supabaseClient.auth.signOut();
+        if (!USER_CREDENTIALS[email]) {
+            alert('Your email is not authorized. Please contact the administrator.');
+            localStorage.removeItem('sims_user');
             window.location.href = 'login.html';
-            return;
+            return false;
         }
 
-        appState.currentRole = data.role || 'viewer';
+        appState.currentUser = { email: email };
+        appState.currentRole = USER_CREDENTIALS[email].role;
+        appState.isAuthenticated = true;
+
+        updateUIForUser();
+
+        // Log the login event
+        logAudit({
+            userEmail: email,
+            action: 'USER_LOGIN',
+            details: `User ${email} logged in successfully`
+        });
+
+        return true;
     } catch (error) {
-        console.error('Error checking role:', error);
-        appState.currentRole = 'viewer';
+        console.error('Auth error:', error);
+        localStorage.removeItem('sims_user');
+        window.location.href = 'login.html';
+        return false;
     }
 }
 
+// Open Audit Modal
+function openAuditModal() {
+    if (appState.currentUser.email !== MASTER_ADMIN) {
+        alert('Access denied. Only Master Admin can view the audit log.');
+        return;
+    }
+    elements.auditModal.style.display = 'flex'; // must be flex for centering
+    loadAuditLog();
+}
+
+// Close Audit Modal
+elements.closeAuditModal.addEventListener('click', () => {
+    elements.auditModal.style.display = 'none';
+});
+
+// Optional: close if click outside modal content
+window.addEventListener('click', (e) => {
+    if (e.target === elements.auditModal) {
+        elements.auditModal.style.display = 'none';
+    }
+});
+
+function getFilteredRows() {
+    if (!appState.activeKey) return [];
+
+    const allRows = appState.files[appState.activeKey].rows || [];
+    sortRowsByShipmentAndContainer(allRows);
+
+    const fShipment = elements.shipmentFilter.value || 'all';
+    const fFactory = elements.factoryFilter.value || 'all';
+    const fContainer = elements.containerFilter.value || 'all';
+    const fStatus = elements.statusFilter.value || 'all';
+    const q = (elements.searchInput.value || '').trim().toLowerCase();
+
+    return allRows.filter(r => {
+        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
+        if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
+        if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
+
+        if (fStatus !== 'all') {
+            const status = classifyStatus(r.REMARKS);
+            if (fStatus === 'Finished' && status !== 'Completed') return false;
+            if (fStatus === 'In Progress' && status !== 'In Progress') return false;
+            if (fStatus === 'Not Started' && status !== 'Not Started') return false;
+            if (fStatus === 'Remaining' && status === 'Completed') return false;
+        }
+
+        if (q) {
+            const hay = Object.values(r).join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+
+        return true;
+    });
+}
+
 function updateUIForUser() {
-    const user = appState.currentUser;
+    const email = appState.currentUser.email;
     const role = appState.currentRole;
 
-    elements.userEmail.textContent = user.email;
+    elements.userEmail.textContent = email;
     elements.userRole.textContent = role.toUpperCase();
     elements.userRole.className = `role-badge ${role}`;
 
-    // Show/hide admin-only features
     const isAdmin = role === 'admin';
 
     if (elements.bulkActionsSection) {
@@ -143,28 +220,249 @@ function updateUIForUser() {
         elements.uploadLabel.style.display = isAdmin ? 'flex' : 'none';
     }
 
-    // Enable/disable form elements
     if (elements.fileInput) elements.fileInput.disabled = !isAdmin;
     if (elements.applyAllBtn) elements.applyAllBtn.disabled = !isAdmin;
-}
 
-// ==================== AUDIT LOGGING ====================
-async function logAudit(action, details) {
-    try {
-        const auditEntry = {
-            user_id: appState.currentUser.id,
-            user_email: appState.currentUser.email,
-            action: action,
-            details: details,
-            timestamp: new Date().toISOString()
-        };
-
-        await supabaseClient.from('audit_log').insert(auditEntry);
-        console.log('Audit logged:', action);
-    } catch (error) {
-        console.error('Failed to log audit:', error);
+    if (email === MASTER_ADMIN) {
+        addUserManagementButton();
     }
 }
+
+// ==================== USER MANAGEMENT UI ====================
+function addUserManagementButton() {
+    const existingBtn = document.getElementById('manageUsersBtn');
+    if (existingBtn) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'manageUsersBtn';
+    btn.className = 'btn btn-secondary';
+    btn.textContent = '👥 Manage Users';
+    btn.style.marginLeft = '10px';
+
+    const actionRight = document.querySelector('.action-right');
+    if (actionRight) {
+        actionRight.appendChild(btn);
+    }
+
+    btn.addEventListener('click', showUserManagement);
+}
+
+function showUserManagement() {
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>👥 User Management</h2>
+                <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 10px;">Add New User</h3>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+                        <input type="email" id="newUserEmail" placeholder="Email address" style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                        <input type="password" id="newUserPassword" placeholder="Password" style="flex: 1; min-width: 150px; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                        <select id="newUserRole" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                            <option value="viewer">Viewer</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <button onclick="addNewUser()" class="btn btn-primary" style="width: auto; margin: 0;">Add User</button>
+                    </div>
+                </div>
+                <h3 style="margin-bottom: 10px;">Current Users</h3>
+                <div id="usersList" style="max-height: 400px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    renderUsersList();
+}
+
+function renderUsersList() {
+    const usersList = document.getElementById('usersList');
+    if (!usersList) return;
+
+    const html = Object.entries(USER_CREDENTIALS).map(([email, userData]) => {
+        const isMaster = email === MASTER_ADMIN;
+        return `
+            <div class="user-card" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px;">
+                <div style="flex: 1;">
+                    <strong>${email}</strong>
+                    <br>
+                    <span style="color: #6b7280; font-size: 13px;">Role: ${userData.role.toUpperCase()}</span>
+                    ${isMaster ? '<span style="color: #667eea; font-size: 13px;"> (Master Admin)</span>' : ''}
+                    <br>
+                    <span style="color: #9ca3af; font-size: 12px;">Password: ${userData.password}</span>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    ${!isMaster ? `
+                        <input type="password" id="pwd_${email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="New password" 
+                            style="padding: 6px; border: 1px solid #ddd; border-radius: 6px; width: 120px;">
+                        <button onclick="changeUserPassword('${email}')" class="btn" 
+                            style="background: #667eea; color: white; width: auto; margin: 0; padding: 6px 12px;">
+                            Change Password
+                        </button>
+                        <select onchange="changeUserRole('${email}', this.value)" 
+                            style="padding: 6px; border: 1px solid #ddd; border-radius: 6px;">
+                            <option value="viewer" ${userData.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                            <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
+                        </select>
+                        <button onclick="removeUser('${email}')" class="btn" 
+                            style="background: #ef4444; color: white; width: auto; margin: 0; padding: 6px 12px;">
+                            Remove
+                        </button>
+                    ` : '<span style="color: #6b7280; font-size: 13px;">Cannot be modified</span>'}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    usersList.innerHTML = html || '<p style="color: #6b7280;">No users found</p>';
+}
+
+window.addNewUser = function () {
+    const emailInput = document.getElementById('newUserEmail');
+    const passwordInput = document.getElementById('newUserPassword');
+    const roleSelect = document.getElementById('newUserRole');
+
+    const email = emailInput.value.trim().toLowerCase();
+    const password = passwordInput.value.trim();
+    const role = roleSelect.value;
+
+    if (!email) {
+        alert('Please enter an email address');
+        return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        alert('Please enter a valid email address');
+        return;
+    }
+
+    if (!password || password.length < 4) {
+        alert('Please enter a password (minimum 4 characters)');
+        return;
+    }
+
+    if (USER_CREDENTIALS[email]) {
+        alert('User already exists');
+        return;
+    }
+
+    USER_CREDENTIALS[email] = { password: password, role: role };
+    saveUserCredentials();
+    logAudit({
+        userEmail: appState.currentUser?.email || 'UNKNOWN',
+        action: 'USER_ADDED',
+        details: `Added user ${email} with role ${role}`
+    });
+
+    emailInput.value = '';
+    passwordInput.value = '';
+    renderUsersList();
+};
+
+window.changeUserPassword = function (email) {
+    const inputId = 'pwd_' + email.replace(/[^a-zA-Z0-9]/g, '_');
+    const passwordInput = document.getElementById(inputId);
+
+    if (!passwordInput) return;
+
+    const newPassword = passwordInput.value.trim();
+
+    if (!newPassword || newPassword.length < 4) {
+        alert('Please enter a valid password (minimum 4 characters)');
+        return;
+    }
+
+    USER_CREDENTIALS[email].password = newPassword;
+    saveUserCredentials();
+    logAudit({
+        userEmail: appState.currentUser?.email || 'UNKNOWN',
+        action: 'USER_PASSWORD_CHANGED',
+        details: `Changed password for ${email}`
+    });
+
+    passwordInput.value = '';
+    renderUsersList();
+    alert('Password updated successfully');
+};
+
+window.changeUserRole = function (email, newRole) {
+    if (email === MASTER_ADMIN) {
+        alert('Cannot change master admin role');
+        return;
+    }
+
+    USER_CREDENTIALS[email].role = newRole;
+    saveUserCredentials();
+    logAudit({
+        userEmail: appState.currentUser?.email || 'UNKNOWN',
+        action: 'USER_ROLE_CHANGED',
+        details: `Changed ${email} role to ${newRole}`
+    });    
+    renderUsersList();
+};
+
+window.removeUser = function (email) {
+    if (email === MASTER_ADMIN) {
+        alert('Cannot remove master admin');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to remove ${email}?`)) {
+        return;
+    }
+
+    delete USER_CREDENTIALS[email];
+    saveUserCredentials();
+    logAudit({
+        userEmail: appState.currentUser?.email || 'UNKNOWN',
+        action: 'USER_REMOVED',
+        details: `Removed user ${email}`
+    });
+
+    renderUsersList();
+};
+
+// ==================== AUDIT LOGGING ====================
+// ==================== AUDIT LOGGING (FIXED) ====================
+// ==================== AUDIT LOGGING ====================
+async function logAudit({
+    userEmail,
+    action,
+    details,
+    tableName = null,
+    ipAddress = null,
+    userAgent = navigator.userAgent
+}) {
+    if (!userEmail) {
+        console.error('❌ Audit log skipped: userEmail is required');
+        return;
+    }
+
+    const payload = {
+        user_id: null,              // no auth
+        user_email: userEmail,      // REAL USER EMAIL
+        action,
+        details,
+        table_name: tableName,
+        ip_address: ipAddress,
+        user_agent: userAgent
+    };
+
+    const { error } = await supabaseClient
+        .from('audit_log')
+        .insert(payload);
+
+    if (error) {
+        console.error('❌ Audit log failed:', error);
+    } else {
+        console.log('🧾 Audit logged:', action, 'by', userEmail);
+    }
+}
+
 
 async function loadAuditLogs(filters = {}) {
     try {
@@ -199,6 +497,17 @@ async function loadAuditLogs(filters = {}) {
     }
 }
 
+function buildAuditUserFilter() {
+    if (!elements.auditUserFilter) return;
+
+    const users = Object.keys(USER_CREDENTIALS).sort();
+    const options = ['<option value="all">All Users</option>']
+        .concat(users.map(u => `<option value="${u}">${u}</option>`))
+        .join('');
+
+    elements.auditUserFilter.innerHTML = options;
+}
+
 function displayAuditLogs(logs) {
     if (logs.length === 0) {
         elements.auditLogContent.innerHTML = '<p class="muted">No audit logs found</p>';
@@ -217,7 +526,11 @@ function displayAuditLogs(logs) {
                 </div>
                 <div class="audit-details">
                     <strong>${log.action}</strong>
-                    ${log.details ? `<br><small>${log.details}</small>` : ''}
+                    <br>
+                    <small>
+                        Table: <b>${log.table_name || 'N/A'}</b><br>
+                        ${log.details || ''}
+                    </small>
                 </div>
             </div>
         `;
@@ -229,24 +542,9 @@ function displayAuditLogs(logs) {
 // ==================== DATA LOADING ====================
 async function loadFromSupabase() {
     try {
-        const { data, error } = await supabaseClient
-            .from('inspection_boxes')
-            .select('*')
-            .order('ContainerNum', { ascending: true })
-            .order('BoxNum', { ascending: true });
+        const rows = await loadAllFromSupabase(appState.activeTable);
 
-        if (error) {
-            console.error('Supabase fetch failed:', error);
-            alert('Failed to load data from Supabase');
-            return;
-        }
-
-        if (!data || data.length === 0) {
-            console.warn('No data found in Supabase');
-            return;
-        }
-
-        const normalizedRows = data.map(row => {
+        const normalizedRows = rows.map(row => {
             const out = {};
             EXPECTED_COLS.forEach(col => {
                 out[col] = row[col] ?? '';
@@ -254,34 +552,53 @@ async function loadFromSupabase() {
             return out;
         });
 
-        const key = 'supabase_data';
+        const key = appState.activeTable;
         appState.files[key] = {
-            name: 'Inspection Data',
+            name: tableOptions.find(t => t.key === key)?.name || key,
             workbook: null,
-            sheetName: 'inspection_boxes',
+            sheetName: key,
             rows: normalizedRows,
             columns: EXPECTED_COLS.slice()
         };
 
-        // Update files select
-        elements.filesSelect.innerHTML = '';
-        const opt = document.createElement('option');
-        opt.value = key;
-        opt.textContent = 'Inspection Data';
-        elements.filesSelect.appendChild(opt);
-
         setActiveFile(key);
 
-        console.log(`✅ Loaded ${normalizedRows.length} rows from Supabase`);
+        console.log(`✅ Loaded ${normalizedRows.length} rows from table: ${key}`);
 
-        await logAudit('DATA_LOAD', `Loaded ${normalizedRows.length} records from database`);
     } catch (error) {
-        console.error('Error loading data:', error);
-        alert('Failed to load inspection data. Please try refreshing the page.');
+        console.error('Error loading data from Supabase:', error);
+        alert('Failed to load inspection data. Please refresh the page.');
     }
 }
 
-// ==================== DATA UPDATES ====================
+async function loadAllFromSupabase(tableName) {
+    const allRows = [];
+    const batchSize = 1000;
+    let from = 0;
+    let to = batchSize - 1;
+
+    while (true) {
+        const { data, error } = await supabaseClient
+            .from(tableName)
+            .select('*')
+            .order('ContainerNum', { ascending: true })
+            .order('BoxNum', { ascending: true })
+            .range(from, to);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allRows.push(...data);
+
+        if (data.length < batchSize) break;
+        from += batchSize;
+        to += batchSize;
+    }
+
+    return allRows;
+}
+
+// ==================== DATA UPDATES - FIXED & SAFE ====================
 async function updateRowInSupabase(row, fieldChanged) {
     if (!row.id) {
         console.error('Missing row.id, cannot update');
@@ -306,38 +623,34 @@ async function updateRowInSupabase(row, fieldChanged) {
         };
 
         const { error } = await supabaseClient
-            .from('inspection_boxes')
+            .from(appState.activeTable)
             .update(payload)
             .eq('id', row.id);
 
         if (error) throw error;
 
-        // Log the audit trail
-        await logAudit('DATA_UPDATE',
-            `Updated ${fieldChanged || 'field'} for Box ${row.BoxNum} in Container ${row.ContainerNum}`
-        );
+        // ✅ ONLY audit the actual update
+        await logAudit({
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'DATA_UPDATE',
+            details: `Updated ${fieldChanged || 'field'} for Box ${row.BoxNum} in Container ${row.ContainerNum}`,
+            tableName: appState.activeTable
+        });
 
-        console.log(`✅ Updated row id=${row.id}`);
+        console.log(`✅ Updated row id=${row.id} in ${appState.activeTable}`);
         return true;
+
     } catch (error) {
-        console.error('Update failed:', error);
+        console.error('❌ Update failed:', error);
         alert('Failed to save changes to database');
         return false;
     }
 }
 
-// Continued in Part 2...
+// Continued in next artifact...
 // Continued from Part 1...
 
 // ==================== UTILITY FUNCTIONS ====================
-function normalizeKey(str) {
-    return String(str || '')
-        .trim()
-        .replace(/\u00A0/g, '')
-        .replace(/[^\w]/g, '')
-        .toLowerCase();
-}
-
 function isCompleted(remarks) {
     if (!remarks) return false;
     return /done/i.test(String(remarks));
@@ -345,28 +658,23 @@ function isCompleted(remarks) {
 
 function classifyStatus(remarks) {
     const rem = String(remarks ?? '').trim().toLowerCase();
-
     if (/done/i.test(rem)) return 'Completed';
     if (/in\s*progress/i.test(rem)) return 'In Progress';
     if (rem === '' || /^(n\/a|na|not started)$/i.test(rem)) return 'Not Started';
-
     return 'Not Started';
 }
 
 function sortRowsByShipmentAndContainer(rows) {
     return rows.sort((a, b) => {
-        // Shipment
         const sA = String(a.shipment ?? '').trim();
         const sB = String(b.shipment ?? '').trim();
         const sCmp = sA.localeCompare(sB);
         if (sCmp !== 0) return sCmp;
 
-        // Container (numeric)
         const cA = parseInt(a.ContainerNum, 10);
         const cB = parseInt(b.ContainerNum, 10);
         if (!isNaN(cA) && !isNaN(cB) && cA !== cB) return cA - cB;
 
-        // BoxNum parsing
         const parseBox = (v) => {
             if (!v) return [Infinity, Infinity];
             const parts = String(v).split('-');
@@ -384,6 +692,12 @@ function sortRowsByShipmentAndContainer(rows) {
     });
 }
 
+function nowTimestampForName() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+}
+
 // ==================== FILTERING & RENDERING ====================
 function setActiveFile(key) {
     if (!appState.files[key]) return;
@@ -399,62 +713,50 @@ function setActiveFile(key) {
 
 function buildShipmentFilter() {
     if (!appState.activeKey) return;
-
     const set = new Set();
     appState.files[appState.activeKey].rows.forEach(r => {
         const v = String(r.shipment ?? '').trim();
         if (v) set.add(v);
     });
-
     const opts = ['<option value="all">All</option>']
         .concat([...set].sort().map(s => `<option value="${s}">${s}</option>`))
         .join('');
-
     elements.shipmentFilter.innerHTML = opts;
 }
 
 function buildFactoryFilter() {
     if (!appState.activeKey) return;
-
     const set = new Set();
     appState.files[appState.activeKey].rows.forEach(r => {
         const v = String(r.Factory ?? '').trim();
         if (v) set.add(v);
     });
-
     const opts = ['<option value="all">All</option>']
         .concat([...set].sort().map(f => `<option value="${f}">${f}</option>`))
         .join('');
-
     elements.factoryFilter.innerHTML = opts;
 }
 
 function buildContainerFilter() {
     if (!appState.activeKey) return;
-
     const set = new Set();
     appState.files[appState.activeKey].rows.forEach(r => {
         const v = String(r.ContainerNum ?? '').trim();
         if (v) set.add(v);
     });
-
     const containerArray = Array.from(set).map(c => {
         const n = parseInt(c, 10);
         return { original: c, number: isNaN(n) ? Infinity : n };
     });
-
     containerArray.sort((a, b) => a.number - b.number);
-
     const opts = ['<option value="all">All</option>']
         .concat(containerArray.map(c => `<option value="${c.original}">${c.original}</option>`))
         .join('');
-
     elements.containerFilter.innerHTML = opts;
 }
 
 function renderFilteredAndLive() {
     if (!appState.isAuthenticated || !appState.activeKey) return;
-
     const allRows = appState.files[appState.activeKey].rows || [];
     sortRowsByShipmentAndContainer(allRows);
 
@@ -489,7 +791,6 @@ function renderFilteredAndLive() {
     renderSummary(filtered);
     renderCharts(filtered);
     updateMultipackNormalCounts(filtered);
-
     elements.rowsCount.textContent = filtered.length;
 }
 
@@ -502,22 +803,20 @@ function renderTable(rows) {
     const cols = appState.files[appState.activeKey].columns || EXPECTED_COLS;
     const isAdmin = appState.currentRole === 'admin';
 
-    // Build header
     const trh = document.createElement('tr');
     cols.forEach(c => {
-        if (c === 'id') return; // Skip ID column
+        if (c === 'id') return;
         const th = document.createElement('th');
         th.textContent = c;
         trh.appendChild(th);
     });
     elements.tableHead.appendChild(trh);
 
-    // Build body
     rows.forEach(r => {
         const tr = document.createElement('tr');
 
         cols.forEach(c => {
-            if (c === 'id') return; // Skip ID column
+            if (c === 'id') return;
 
             const td = document.createElement('td');
 
@@ -534,7 +833,6 @@ function renderTable(rows) {
                     select.appendChild(el);
                 });
 
-                // Color coding
                 const val = (r[c] ?? '').toLowerCase();
                 if (val === 'done') select.style.backgroundColor = '#d1fae5';
                 else if (val === 'in progress') select.style.backgroundColor = '#fef3c7';
@@ -586,7 +884,7 @@ function renderTable(rows) {
                     clearTimeout(debounceTimer);
                     debounceTimer = setTimeout(async () => {
                         await updateRowInSupabase(r, c);
-                        renderFilteredAndLive();
+                        // Don't re-render to avoid losing focus
                     }, 1000);
                 });
             }
@@ -643,7 +941,8 @@ function renderSummary(rows) {
     `;
 }
 
-function updateMultipackNormalCounts(rows) {
+function updateMultipackNormalCounts() {
+    const rows = getFilteredRows(); // ✅ Use filtered rows
     let multi = 0, normal = 0;
 
     rows.forEach(r => {
@@ -656,6 +955,10 @@ function updateMultipackNormalCounts(rows) {
     elements.normalCount.textContent = normal;
 }
 
+// Rendering charts and other functions continue in Part 3...
+// Continued from Part 2...
+
+// ==================== CHARTS ====================
 function renderCharts(rows) {
     const byContainer = {};
 
@@ -670,7 +973,6 @@ function renderCharts(rows) {
     const finishedData = labels.map(l => byContainer[l].finished);
     const remainingData = labels.map(l => byContainer[l].total - byContainer[l].finished);
 
-    // Bar Chart
     const ctxBar = document.getElementById('boxesByContainerChart')?.getContext('2d');
     if (ctxBar) {
         if (appState.charts.container) appState.charts.container.destroy();
@@ -692,7 +994,6 @@ function renderCharts(rows) {
         });
     }
 
-    // Donut Chart
     const totals = labels.reduce((acc, l) => {
         acc.total += byContainer[l].total;
         acc.finished += byContainer[l].finished;
@@ -730,7 +1031,6 @@ function renderCharts(rows) {
         });
     }
 
-    // Daily Progress Chart
     const byDate = {};
     rows.forEach(r => {
         if (isCompleted(r.REMARKS) && r.CompletionDate) {
@@ -769,81 +1069,210 @@ function renderCharts(rows) {
     }
 }
 
-// ==================== EVENT LISTENERS ====================
-function setupEventListeners() {
-    // Logout
-    elements.logoutBtn.addEventListener('click', async () => {
-        await supabaseClient.auth.signOut();
-        window.location.href = 'login.html';
-    });
-
-    // Refresh data
-    elements.refreshBtn.addEventListener('click', async () => {
-        await loadFromSupabase();
-    });
-
-    // Export
-    elements.exportBtn.addEventListener('click', () => {
-        if (!appState.activeKey) {
-            alert('No active file to export');
-            return;
-        }
-        exportWorkbookWithAnalytics(appState.activeKey);
-    });
-
-    // Filters
-    elements.shipmentFilter.addEventListener('change', renderFilteredAndLive);
-    elements.factoryFilter.addEventListener('change', renderFilteredAndLive);
-    elements.containerFilter.addEventListener('change', renderFilteredAndLive);
-    elements.statusFilter.addEventListener('change', renderFilteredAndLive);
-    elements.searchInput.addEventListener('input', renderFilteredAndLive);
-
-    // Clear filters
-    elements.clearFiltersBtn.addEventListener('click', () => {
-        elements.shipmentFilter.value = 'all';
-        elements.factoryFilter.value = 'all';
-        elements.containerFilter.value = 'all';
-        elements.statusFilter.value = 'all';
-        elements.searchInput.value = '';
-        renderFilteredAndLive();
-    });
-
-    // Multipack/normal filters
-    elements.multipackCard.addEventListener('click', () => filterByItemCount(true));
-    elements.normalPackCard.addEventListener('click', () => filterByItemCount(false));
-
-    // Bulk actions
-    if (elements.applyAllBtn) {
-        elements.applyAllBtn.addEventListener('click', async () => {
-            const val = elements.applyRemark.value;
-            await applyBulkRemark(val);
-        });
+// ==================== EXPORT FUNCTION - FIXED ====================
+function exportWorkbookWithAnalytics() {
+    if (!appState.activeKey || !appState.files[appState.activeKey]) {
+        alert('No data to export');
+        return;
     }
 
-    // Audit log
-    elements.viewAuditBtn.addEventListener('click', () => {
-        elements.auditModal.classList.add('active');
-        loadAuditLogs();
-    });
+    const entry = appState.files[appState.activeKey];
 
-    elements.closeAuditModal.addEventListener('click', () => {
-        elements.auditModal.classList.remove('active');
+    // Data Sheet
+    const dataRows = entry.rows.map(r => {
+        const out = {};
+        EXPECTED_COLS.forEach(c => out[c] = r[c] ?? "");
+        Object.keys(r).forEach(k => { if (!EXPECTED_COLS.includes(k)) out[k] = r[k]; });
+        return out;
     });
+    const wsData = XLSX.utils.json_to_sheet(dataRows);
 
-    elements.filterAuditBtn.addEventListener('click', () => {
-        loadAuditLogs({
-            dateFrom: elements.auditDateFrom.value,
-            dateTo: elements.auditDateTo.value,
-            user: elements.auditUserFilter.value
+    // Analytics Builder
+    function buildAnalytics(rows) {
+        const byContainer = {};
+
+        rows.forEach(r => {
+            const cont = String(r.ContainerNum ?? "NA");
+            if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
+            byContainer[cont].total++;
+            if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
         });
+
+        const out = [];
+        let total = 0, finished = 0;
+
+        Object.keys(byContainer).sort().forEach(cont => {
+            const v = byContainer[cont];
+            const remaining = v.total - v.finished;
+            const pct = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
+
+            out.push({
+                Container: cont,
+                TotalBoxes: v.total,
+                Finished: v.finished,
+                Remaining: remaining,
+                CompletionPercent: pct + "%"
+            });
+
+            total += v.total;
+            finished += v.finished;
+        });
+
+        const pctAll = total === 0 ? 0 : Math.round((finished / total) * 100);
+        out.push({
+            Container: "ALL",
+            TotalBoxes: total,
+            Finished: finished,
+            Remaining: total - finished,
+            CompletionPercent: pctAll + "%"
+        });
+
+        return XLSX.utils.json_to_sheet(out);
+    }
+
+    const wsAnalytics = buildAnalytics(entry.rows);
+
+    const factoryOrder = ["F200", "F100", "AIO"];
+    const factories = [...new Set(entry.rows.map(r => r.Factory || "UNKNOWN"))];
+
+    // Summary Sheet
+    function buildSummarySheet() {
+        const summaryData = [];
+        let allTotal = 0, allFinished = 0;
+
+        factoryOrder.forEach(fac => {
+            const filtered = entry.rows.filter(r => r.Factory === fac);
+            if (filtered.length === 0) return;
+
+            const total = filtered.length;
+            const finished = filtered.filter(r => isCompleted(r.REMARKS)).length;
+            const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
+
+            summaryData.push({
+                Factory: fac,
+                TotalBoxes: total,
+                Completed: finished,
+                Remaining: total - finished,
+                CompletionPercent: pct + "%"
+            });
+
+            allTotal += total;
+            allFinished += finished;
+        });
+
+        const pctAll = allTotal === 0 ? 0 : Math.round((allFinished / allTotal) * 100);
+        summaryData.push({
+            Factory: "ALL",
+            TotalBoxes: allTotal,
+            Completed: allFinished,
+            Remaining: allTotal - allFinished,
+            CompletionPercent: pctAll + "%"
+        });
+
+        const ws = XLSX.utils.json_to_sheet(summaryData, { origin: "A2" });
+        ws["A1"] = { t: "s", v: "Shipment Inspection Summary" };
+        ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+        ws["!cols"] = [
+            { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 }
+        ];
+
+        return ws;
+    }
+
+    const wsSummary = buildSummarySheet();
+
+    // Build Workbook
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsData, "Data");
+    XLSX.utils.book_append_sheet(wb, wsAnalytics, "Analytics");
+
+    factories.forEach(fac => {
+        const filtered = entry.rows.filter(r => r.Factory === fac);
+        const ws = buildAnalytics(filtered);
+        const safe = `Analytics_${fac}`.replace(/[^A-Za-z0-9_]/g, "");
+        XLSX.utils.book_append_sheet(wb, ws, safe);
     });
 
-    // Click outside modal to close
-    window.addEventListener('click', (e) => {
-        if (e.target === elements.auditModal) {
-            elements.auditModal.classList.remove('active');
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+
+    // Save File
+    const outName = `${entry.name.replace(/\s+/g, '_')}_${nowTimestampForName()}.xlsx`;
+    XLSX.writeFile(wb, outName);
+
+    logAudit(
+        'DATA_EXPORT',
+        `Exported ${entry.rows.length} records`,
+        appState.activeTable
+    );
+}
+
+async function applyBulkRemark(value) {
+    if (!value) return alert("Please select a remark to apply");
+
+    // Treat the special __CLEAR__ value as empty
+    const remarkValue = value === '__CLEAR__' ? '' : value;
+
+    if (!appState.activeKey) return;
+
+    const allRows = appState.files[appState.activeKey].rows || [];
+    sortRowsByShipmentAndContainer(allRows);
+
+    const fShipment = elements.shipmentFilter.value || 'all';
+    const fFactory = elements.factoryFilter.value || 'all';
+    const fContainer = elements.containerFilter.value || 'all';
+    const fStatus = elements.statusFilter.value || 'all';
+    const q = (elements.searchInput.value || '').trim().toLowerCase();
+
+    const filtered = allRows.filter(r => {
+        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
+        if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
+        if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
+
+        if (fStatus !== 'all') {
+            const status = classifyStatus(r.REMARKS);
+            if (fStatus === 'Finished' && status !== 'Completed') return false;
+            if (fStatus === 'In Progress' && status !== 'In Progress') return false;
+            if (fStatus === 'Not Started' && status !== 'Not Started') return false;
+            if (fStatus === 'Remaining' && status === 'Completed') return false;
         }
+
+        if (q) {
+            const hay = Object.values(r).join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+
+        return true;
     });
+
+    if (filtered.length === 0) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    let count = 0;
+
+    for (const row of filtered) {
+        row.REMARKS = remarkValue;
+
+        if (remarkValue.toLowerCase() === 'done') {
+            row.CompletionDate = row.CompletionDate || today;
+        } else {
+            row.CompletionDate = '';
+        }
+
+        count++;
+    }
+
+    renderFilteredAndLive();
+
+    await Promise.all(filtered.map(r => updateRowInSupabase(r, 'REMARKS (Bulk)')));
+
+    await logAudit({
+        userEmail: appState.currentUser.email,
+        action: 'BULK_UPDATE',
+        details: `Applied "${remarkValue || 'Cleared'}" to ${count} filtered rows`,
+        tableName: appState.activeTable
+    });
+
+    elements.bulkRemarkSelect.value = ''; // reset dropdown
 }
 
 function filterByItemCount(isMulti) {
@@ -862,46 +1291,115 @@ function filterByItemCount(isMulti) {
     elements.rowsCount.textContent = filtered.length;
 }
 
-async function applyBulkRemark(value) {
-    if (!appState.activeKey) return;
+// ==================== EVENT LISTENERS ====================
+function setupEventListeners() {
+    elements.logoutBtn.addEventListener('click', async () => {
+        localStorage.removeItem('sims_user');
+        window.location.href = 'login.html';
+    });
 
-    const allRows = appState.files[appState.activeKey].rows || [];
-    const today = new Date().toISOString().split('T')[0];
+    elements.refreshBtn.addEventListener('click', async () => {
+        await loadFromSupabase();
+    });
 
-    let count = 0;
+    // FIX: Export function
+    elements.exportBtn.addEventListener('click', () => {
+        exportWorkbookWithAnalytics();
+    });
 
-    for (const row of allRows) {
-        row.REMARKS = value;
+    elements.shipmentFilter.addEventListener('change', renderFilteredAndLive);
+    elements.factoryFilter.addEventListener('change', renderFilteredAndLive);
+    elements.containerFilter.addEventListener('change', renderFilteredAndLive);
+    elements.statusFilter.addEventListener('change', renderFilteredAndLive);
+    elements.searchInput.addEventListener('input', renderFilteredAndLive);
 
-        if (value.toLowerCase() === 'done') {
-            row.CompletionDate = row.CompletionDate || today;
-        } else {
-            row.CompletionDate = '';
-        }
+    elements.clearFiltersBtn.addEventListener('click', () => {
+        elements.shipmentFilter.value = 'all';
+        elements.factoryFilter.value = 'all';
+        elements.containerFilter.value = 'all';
+        elements.statusFilter.value = 'all';
+        elements.searchInput.value = '';
+        renderFilteredAndLive();
+    });
 
-        await updateRowInSupabase(row, 'REMARKS (Bulk)');
-        count++;
+    elements.multipackCard.addEventListener('click', () => filterByItemCount(true));
+    elements.normalPackCard.addEventListener('click', () => filterByItemCount(false));
+
+    if (elements.applyAllBtn) {
+        elements.applyAllBtn.addEventListener('click', async () => {
+            const val = elements.applyRemark.value;
+            if (!val) {
+                alert('Please select a remark to apply');
+                return;
+            }
+            if (confirm(`Apply "${val}" to all filtered rows?`)) {
+                await applyBulkRemark(val);
+            }
+        });
     }
 
-    await logAudit('BULK_UPDATE', `Applied "${value}" to ${count} rows`);
-    renderFilteredAndLive();
-}
+    elements.viewAuditBtn.addEventListener('click', () => {
+        elements.auditModal.classList.add('active');
 
-function exportWorkbookWithAnalytics(key) {
-    // Export logic similar to original but with improved structure
-    // Placeholder - implementation would be similar to original
-    alert('Export functionality - to be implemented');
+        // Populate user filter
+        buildAuditUserFilter();
+
+        // Load logs initially
+        loadAuditLogs();
+    });
+
+    elements.closeAuditModal.addEventListener('click', () => {
+        elements.auditModal.classList.remove('active');
+    });
+
+    elements.filterAuditBtn.addEventListener('click', () => {
+        loadAuditLogs({
+            dateFrom: elements.auditDateFrom.value,
+            dateTo: elements.auditDateTo.value,
+            user: elements.auditUserFilter.value
+        });
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target === elements.auditModal) {
+            elements.auditModal.classList.remove('active');
+        }
+    });
+
+    // FIX: Table selector event listener
+    elements.filesSelect.addEventListener('change', async () => {
+        appState.activeTable = elements.filesSelect.value;
+        await loadFromSupabase();
+    });
 }
 
 // ==================== INITIALIZATION ====================
 async function init() {
-    const authenticated = await checkAuthentication();
-    if (!authenticated) return;
+    if (!checkAuthentication()) return;
+
+    // Only show Audit Log button if user is master admin
+    if (appState.currentUser.email !== MASTER_ADMIN) {
+        elements.viewAuditBtn.style.display = 'none'; // hide the button completely
+    } else {
+        // Add click listener for master admin
+        elements.viewAuditBtn.addEventListener('click', () => {
+            openAuditModal(); // function that opens audit modal
+        });
+    }
+
+    // Populate table dropdown
+    elements.filesSelect.innerHTML = tableOptions
+        .map(t => `<option value="${t.key}">${t.name}</option>`)
+        .join('');
+
+    elements.filesSelect.value = appState.activeTable;
 
     setupEventListeners();
     await loadFromSupabase();
 
-    console.log('Application initialized successfully');
+    console.log('✅ Application initialized for:', appState.currentUser.email);
+    console.log('✅ Role:', appState.currentRole);
+    console.log('✅ Active table:', appState.activeTable);
 }
 
 // Start the application

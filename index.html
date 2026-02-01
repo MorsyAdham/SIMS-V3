@@ -39,9 +39,12 @@
                     <select id="filesSelect" class="styled-select"></select>
                 </label>
 
-                <button id="refreshBtn" class="btn btn-icon" title="Refresh Data">
-                    <span>🔄</span> Refresh
-                </button>
+                <label class="select-label">
+                    Refresh
+                    <button id="refreshBtn" class="btn btn-icon" title="Refresh Data">
+                        <span>🔄</span> Refresh
+                    </button>
+                </label>
             </div>
 
             <div class="action-right">
@@ -138,7 +141,7 @@
                         <option value="">--Select--</option>
                         <option value="Done">Done</option>
                         <option value="In Progress">In Progress</option>
-                        <option value="">Clear</option>
+                        <option value="__CLEAR__">Clear</option>
                     </select>
                 </label>
                 <button id="applyAllBtn" class="btn btn-primary">Apply to Filtered Rows</button>

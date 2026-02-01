@@ -480,7 +480,6 @@ WHERE email = 'your-email@example.com';
    WHERE email = 'your-email@example.com';
    ```
 2. Clear browser cache
-
 ### Issue: Charts not displaying
 
 **Solution:**

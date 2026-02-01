@@ -123,42 +123,6 @@
             transform: translateY(0);
         }
 
-        .btn-secondary {
-            background: transparent;
-            color: #667eea;
-            border: 2px solid #667eea;
-        }
-
-        .btn-secondary:hover {
-            background: #667eea;
-            color: white;
-        }
-
-        .divider {
-            text-align: center;
-            margin: 25px 0;
-            position: relative;
-        }
-
-        .divider::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: #e5e7eb;
-        }
-
-        .divider span {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 0 15px;
-            color: #6b7280;
-            font-size: 14px;
-            position: relative;
-            z-index: 1;
-        }
-
         .error-message {
             background: #fee2e2;
             border: 1px solid #fecaca;
@@ -170,37 +134,9 @@
             display: none;
         }
 
-        .success-message {
-            background: #d1fae5;
-            border: 1px solid #a7f3d0;
-            color: #059669;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 20px;
-            display: none;
-        }
-
         .loading {
             opacity: 0.6;
             pointer-events: none;
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.6s linear infinite;
-            margin-left: 8px;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
         }
 
         @media (max-width: 480px) {
@@ -224,7 +160,6 @@
         </div>
 
         <div id="errorMessage" class="error-message"></div>
-        <div id="successMessage" class="success-message"></div>
 
         <form id="loginForm">
             <div class="form-group">
@@ -242,14 +177,6 @@
             <button type="submit" class="btn btn-primary" id="loginBtn">
                 Sign In
             </button>
-
-            <div class="divider">
-                <span>Don't have an account?</span>
-            </div>
-
-            <button type="button" class="btn btn-secondary" id="signupBtn">
-                Request Access
-            </button>
         </form>
     </div>
 
@@ -260,54 +187,51 @@
 
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        // Load user credentials from localStorage
+        let USER_CREDENTIALS = {
+            "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
+            "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" }
+        };
+
+        function loadUserCredentials() {
+            const stored = localStorage.getItem('sims_user_credentials');
+            if (stored) {
+                try {
+                    USER_CREDENTIALS = JSON.parse(stored);
+                } catch (e) {
+                    console.error('Failed to load credentials:', e);
+                }
+            }
+        }
+
+        loadUserCredentials();
+
+        const errorMessage = document.getElementById('errorMessage');
         const loginForm = document.getElementById('loginForm');
         const loginBtn = document.getElementById('loginBtn');
-        const signupBtn = document.getElementById('signupBtn');
         const emailInput = document.getElementById('email');
         const passwordInput = document.getElementById('password');
-        const errorMessage = document.getElementById('errorMessage');
-        const successMessage = document.getElementById('successMessage');
 
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
-            successMessage.style.display = 'none';
         }
 
-        function showSuccess(message) {
-            successMessage.textContent = message;
-            successMessage.style.display = 'block';
+        function hideError() {
             errorMessage.style.display = 'none';
-        }
-
-        function hideMessages() {
-            errorMessage.style.display = 'none';
-            successMessage.style.display = 'none';
-        }
-
-        function setLoading(button, isLoading) {
-            if (isLoading) {
-                button.classList.add('loading');
-                button.innerHTML += '<span class="spinner"></span>';
-            } else {
-                button.classList.remove('loading');
-                const spinner = button.querySelector('.spinner');
-                if (spinner) spinner.remove();
-            }
         }
 
         // Check if already logged in
-        supabaseClient.auth.getSession().then(({ data: { session } }) => {
-            if (session) {
-                window.location.href = 'index.html';
-            }
-        });
+        const storedUser = localStorage.getItem('sims_user');
+        if (storedUser) {
+            window.location.href = 'index.html';
+        }
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            hideMessages();
+            hideError();
 
-            const email = emailInput.value.trim();
+            const email = emailInput.value.trim().toLowerCase();
             const password = passwordInput.value;
 
             if (!email || !password) {
@@ -315,82 +239,44 @@
                 return;
             }
 
-            setLoading(loginBtn, true);
+            loginBtn.classList.add('loading');
+            loginBtn.textContent = 'Signing in...';
 
             try {
-                const { data, error } = await supabaseClient.auth.signInWithPassword({
-                    email,
-                    password
-                });
+                // Check if user exists
+                const user = USER_CREDENTIALS[email];
 
-                if (error) throw error;
-
-                // Check if user is approved
-                const { data: roleData } = await supabaseClient
-                    .from('user_roles')
-                    .select('role, approved')
-                    .eq('user_id', data.user.id)
-                    .single();
-
-                if (!roleData || !roleData.approved) {
-                    await supabaseClient.auth.signOut();
-                    showError('Your account is pending admin approval. Please contact an administrator.');
-                    setLoading(loginBtn, false);
-                    return;
+                if (!user) {
+                    throw new Error('Email not authorized. Please contact the administrator.');
                 }
 
-                // Successful login
+                // Verify password
+                if (user.password !== password) {
+                    throw new Error('Incorrect password');
+                }
+
+                // Store user session
+                const userData = {
+                    email: email,
+                    loginTime: new Date().toISOString()
+                };
+
+                localStorage.setItem('sims_user', JSON.stringify(userData));
+
+                // Log audit
+                await supabaseClient.from('audit_log').insert({
+                    user_email: email,
+                    action: 'LOGIN',
+                    details: 'User logged in successfully',
+                    timestamp: new Date().toISOString()
+                });
+
+                // Redirect to dashboard
                 window.location.href = 'index.html';
             } catch (error) {
-                setLoading(loginBtn, false);
-                showError(error.message || 'Login failed. Please check your credentials.');
-            }
-        });
-
-        signupBtn.addEventListener('click', async () => {
-            hideMessages();
-
-            const email = emailInput.value.trim();
-            const password = passwordInput.value;
-
-            if (!email || !password) {
-                showError('Please enter both email and password to sign up');
-                return;
-            }
-
-            if (password.length < 6) {
-                showError('Password must be at least 6 characters long');
-                return;
-            }
-
-            setLoading(signupBtn, true);
-
-            try {
-                const { data, error } = await supabaseClient.auth.signUp({
-                    email,
-                    password
-                });
-
-                if (error) throw error;
-
-                if (data.user) {
-                    // Create pending user role
-                    await supabaseClient.from('user_roles').insert({
-                        user_id: data.user.id,
-                        email: email,
-                        role: 'viewer',
-                        approved: false,
-                        created_at: new Date().toISOString()
-                    });
-
-                    showSuccess('Account created! Please wait for admin approval before logging in.');
-                    emailInput.value = '';
-                    passwordInput.value = '';
-                }
-            } catch (error) {
-                showError(error.message || 'Signup failed. Please try again.');
-            } finally {
-                setLoading(signupBtn, false);
+                loginBtn.classList.remove('loading');
+                loginBtn.textContent = 'Sign In';
+                showError(error.message || 'Login failed. Please try again.');
             }
         });
     </script>
