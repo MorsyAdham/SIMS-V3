@@ -476,6 +476,12 @@ td input[type="date"] {
     display: none;
 }
 
+#tableHead,
+#tableBody{
+    text-align: center;
+    vertical-align: middle;
+}
+
 /* ========== CHARTS ========== */
 .charts-section {
     display: grid;
@@ -665,72 +671,71 @@ td input[type="date"] {
 }
 
 @media (max-width: 768px) {
+
+    /* ===== HEADER COMPACT MODE (MOBILE) ===== */
+
     body {
-        padding-top: 120px;
+        padding-top: 80px; /* was 120px */
     }
 
     .top {
-        flex-direction: column;
-        padding: 12px 16px;
-        gap: 12px;
+        margin: 6px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        gap: 6px;
+    }
+
+    .header-left img {
+        height: 36px; /* smaller logo */
+    }
+
+    .header-title h1 {
+        font-size: 16px;
+        line-height: 1.2;
+    }
+
+    .header-title .muted {
+        font-size: 11px;
     }
 
     .header-left {
-        width: 100%;
-        justify-content: center;
+        gap: 8px;
     }
 
     .header-right {
-        width: 100%;
-        justify-content: center;
+        gap: 6px;
     }
 
-    .action-bar {
-        flex-direction: column;
+    .user-badge {
+        padding: 6px 8px;
     }
 
-    .action-left, .action-right {
-        width: 100%;
-        justify-content: center;
+    #userEmail {
+        font-size: 12px;
     }
 
-    .filters {
-        grid-template-columns: 1fr;
+    .role-badge {
+        font-size: 10px;
+        padding: 1px 6px;
     }
 
-    .summary {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .pack-stats {
-        grid-template-columns: 1fr;
-    }
-
-    .charts-section {
-        grid-template-columns: 1fr;
-    }
-
-    .table-scroll {
-        max-height: 400px;
-    }
-
-    .modal-content {
-        width: 95%;
-        max-height: 90vh;
+    .btn-logout {
+        padding: 6px 10px;
+        font-size: 12px;
     }
 }
 
 @media (max-width: 480px) {
-    .summary {
-        grid-template-columns: 1fr;
+
+    .header-title h1 {
+        font-size: 14px;
     }
 
-    .btn {
-        width: 100%;
-        justify-content: center;
+    .header-title .muted {
+        display: none; /* hide subtitle to save space */
     }
 
-    .action-left, .action-right {
-        flex-direction: column;
+    .top {
+        padding: 6px 10px;
     }
 }

@@ -2,8 +2,21 @@
 const SUPABASE_URL = "https://biqwfqkuhebxcfucangt.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcXdmcWt1aGVieGNmdWNhbmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzNzM5NzQsImV4cCI6MjA4MTk0OTk3NH0.QkASAl8yzXfxVq0b0FdkXHTOpblldr2prCnImpV8ml8";
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { storage: sessionStorage } // <-- use sessionStorage instead of default localStorage
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY,
+  {
+    auth: {
+      persistSession: false,   // 🚫 do NOT restore last session
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  }
+);
+
+// 2️⃣ Force logout on every page load (refresh)
+window.addEventListener("load", () => {
+  sessionStorage.removeItem('sims_user');
 });
 
 // ==================== USER MANAGEMENT ====================
@@ -107,7 +120,7 @@ elements.normalPackCard.addEventListener('click', () => {
 
 // ==================== AUTHENTICATION ====================
 function checkAuthentication() {
-    const storedUser = localStorage.getItem('sims_user');
+    const storedUser = sessionStorage.getItem('sims_user'); // ✅ CHANGED
     if (!storedUser) {
         window.location.href = 'login.html';
         return false;
@@ -118,19 +131,18 @@ function checkAuthentication() {
         const email = userData.email;
 
         if (!USER_CREDENTIALS[email]) {
-            alert('Your email is not authorized. Please contact the administrator.');
-            localStorage.removeItem('sims_user');
+            alert('Your email is not authorized.');
+            sessionStorage.removeItem('sims_user'); // ✅ CHANGED
             window.location.href = 'login.html';
             return false;
         }
 
-        appState.currentUser = { email: email };
+        appState.currentUser = { email };
         appState.currentRole = USER_CREDENTIALS[email].role;
         appState.isAuthenticated = true;
 
         updateUIForUser();
 
-        // Log the login event
         logAudit({
             userEmail: email,
             action: 'USER_LOGIN',
@@ -138,9 +150,9 @@ function checkAuthentication() {
         });
 
         return true;
-    } catch (error) {
-        console.error('Auth error:', error);
-        localStorage.removeItem('sims_user');
+    } catch (err) {
+        console.error('Auth error:', err);
+        sessionStorage.removeItem('sims_user'); // ✅ CHANGED
         window.location.href = 'login.html';
         return false;
     }
@@ -426,8 +438,6 @@ window.removeUser = function (email) {
     renderUsersList();
 };
 
-// ==================== AUDIT LOGGING ====================
-// ==================== AUDIT LOGGING (FIXED) ====================
 // ==================== AUDIT LOGGING ====================
 async function logAudit({
     userEmail,
@@ -1293,8 +1303,8 @@ function filterByItemCount(isMulti) {
 
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
-    elements.logoutBtn.addEventListener('click', async () => {
-        localStorage.removeItem('sims_user');
+    elements.logoutBtn.addEventListener('click', () => {
+        sessionStorage.removeItem('sims_user'); // ✅ per-tab logout
         window.location.href = 'login.html';
     });
 
