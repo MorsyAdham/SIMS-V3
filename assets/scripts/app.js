@@ -25,7 +25,7 @@ const MASTER_ADMIN = "adhammorsy2311@gmail.com";
 let USER_CREDENTIALS = {
     "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
     "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" },
-    "Mohamed_aref@hanwhaegypt.com": { password: "bigboss1977", role: "admin" },
+    "mohamed_aref@hanwhaegypt.com": { password: "bigboss1977", role: "admin" },
     "test@gmail.com": { password: "1234", role: "viewer" },
 };
 
@@ -1480,3 +1480,4 @@ async function init() {
 // Start the application
 
 init();
+
