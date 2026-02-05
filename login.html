@@ -180,7 +180,6 @@
         </form>
     </div>
     
-    <script src="app.js"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script>
         const SUPABASE_URL = "https://biqwfqkuhebxcfucangt.supabase.co";
@@ -189,8 +188,14 @@
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // Load user credentials from localStorage
-        let USER_CREDENTIALS = window.USER_CREDENTIALS;
-
+        let USER_CREDENTIALS = {
+            "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
+            "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" },
+            "mohamed_aref@hanwhaegypt.com": { password: "bigboss1977", role: "admin" },
+            "kdh2873@hanwhaegypt.com": { password: "hyungkim2026", role: "viewer" },
+            "test@gmail.com": { password: "1234", role: "viewer" },
+        };
+        
         function loadUserCredentials() {
             const stored = localStorage.getItem('sims_user_credentials');
             if (stored) {
@@ -276,4 +281,5 @@
 
 
 </html>
+
 
