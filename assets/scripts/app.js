@@ -67,7 +67,8 @@ const appState = {
 // Table options
 const tableOptions = [
     { key: 'inspection_boxes', name: 'NOV 2025' },
-    { key: 'jan_2026_inspection_boxes', name: 'JAN 2026' }
+    { key: 'jan_2026_inspection_boxes', name: 'JAN 2026' },
+    { key: 'mar_2026_inspection_boxes', name: 'MAR 2026' }
 ];
 
 // ==================== DOM ELEMENTS ====================
