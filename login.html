@@ -187,30 +187,35 @@
 
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // Load user credentials from localStorage
-        let USER_CREDENTIALS = {
-            "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
-            "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" }
-        };
-
-        function loadUserCredentials() {
-            const stored = localStorage.getItem('sims_user_credentials');
-            if (stored) {
-                try {
-                    USER_CREDENTIALS = JSON.parse(stored);
-                } catch (e) {
-                    console.error('Failed to load credentials:', e);
-                }
-            }
-        }
-
-        loadUserCredentials();
-
         const errorMessage = document.getElementById('errorMessage');
         const loginForm = document.getElementById('loginForm');
         const loginBtn = document.getElementById('loginBtn');
         const emailInput = document.getElementById('email');
         const passwordInput = document.getElementById('password');
+
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        async function logAudit(userId, userEmail, action, details) {
+            const { error } = await supabaseClient.from('audit_log').insert({
+                user_id: userId,
+                user_email: userEmail,
+                action,
+                details,
+                table_name: null,
+                ip_address: null,
+                user_agent: navigator.userAgent
+            });
+
+            if (error) {
+                console.error('Audit log failed:', error);
+            }
+        }
 
         function showError(message) {
             errorMessage.textContent = message;
@@ -237,35 +242,28 @@
             loginBtn.textContent = 'Signing in...';
 
             try {
-                // Check if user exists
-                const user = USER_CREDENTIALS[email];
+                const passwordHash = await hashPassword(password);
+                const { data: user, error } = await supabaseClient
+                    .from('sims_users')
+                    .select('id, email, role')
+                    .eq('email', email)
+                    .eq('password_hash', passwordHash)
+                    .single();
 
-                if (!user) {
-                    throw new Error('Email not authorized. Please contact the administrator.');
+                if (error || !user) {
+                    await logAudit(null, email, 'USER_LOGIN_FAILED', `Failed login attempt for ${email}`);
+                    throw new Error('Invalid email or password');
                 }
 
-                // Verify password
-                if (user.password !== password) {
-                    throw new Error('Incorrect password');
-                }
-
-                // Store user session (PER TAB)
                 const userData = {
-                    email: email,
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
                     loginTime: new Date().toISOString()
                 };
 
-                sessionStorage.setItem('sims_user', JSON.stringify(userData));
-
-                // Log audit
-                await supabaseClient.from('audit_log').insert({
-                    user_email: email,
-                    action: 'LOGIN',
-                    details: 'User logged in successfully',
-                    timestamp: new Date().toISOString()
-                });
-
-                // Redirect to dashboard
+                sessionStorage.setItem('currentUser', JSON.stringify(userData));
+                await logAudit(user.id, user.email, 'USER_LOGIN', `User ${user.email} logged in successfully`);
                 window.location.href = 'index.html';
             } catch (error) {
                 loginBtn.classList.remove('loading');

@@ -29,11 +29,34 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_email ON public.user_roles(email);
 CREATE INDEX IF NOT EXISTS idx_user_roles_approved ON public.user_roles(approved);
 
 -- =====================================================
--- 2. CREATE AUDIT LOG TABLE (if not exists)
+-- 2. CREATE SIMS_USERS TABLE FOR APP-LEVEL AUTHENTICATION
+-- =====================================================
+CREATE TABLE IF NOT EXISTS public.sims_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    password_plain TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('master_admin', 'admin', 'viewer')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.sims_users
+ADD COLUMN IF NOT EXISTS password_plain TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_sims_users_email ON public.sims_users(email);
+CREATE INDEX IF NOT EXISTS idx_sims_users_role ON public.sims_users(role);
+
+-- Keep the auth table open to anon/authenticated clients because this app
+-- uses the same browser-side auth pattern as the reference project.
+ALTER TABLE public.sims_users DISABLE ROW LEVEL SECURITY;
+
+-- =====================================================
+-- 3. CREATE AUDIT LOG TABLE (if not exists)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS public.audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID,
     user_email TEXT NOT NULL,
     action TEXT NOT NULL,
     details TEXT,
@@ -42,13 +65,24 @@ CREATE TABLE IF NOT EXISTS public.audit_log (
     user_agent TEXT
 );
 
+ALTER TABLE public.audit_log
+ALTER COLUMN user_id DROP NOT NULL;
+
+ALTER TABLE public.audit_log
+DROP CONSTRAINT IF EXISTS audit_log_user_id_fkey;
+
+ALTER TABLE public.audit_log
+ADD COLUMN IF NOT EXISTS table_name TEXT;
+
+ALTER TABLE public.audit_log DISABLE ROW LEVEL SECURITY;
+
 -- Indexes for audit log
 CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON public.audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON public.audit_log(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON public.audit_log(action);
 
 -- =====================================================
--- 3. UPDATE inspection_boxes TABLE
+-- 4. UPDATE inspection_boxes TABLE
 -- =====================================================
 -- Add unique constraint to prevent duplicates
 DO $$ 
@@ -79,7 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_inspection_boxes_remarks ON public.inspection_box
 CREATE INDEX IF NOT EXISTS idx_inspection_boxes_completion_date ON public.inspection_boxes("CompletionDate");
 
 -- =====================================================
--- 4. ROW LEVEL SECURITY (RLS) POLICIES
+-- 5. ROW LEVEL SECURITY (RLS) POLICIES
 -- =====================================================
 
 -- Enable RLS on all tables
@@ -87,6 +121,9 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inspection_boxes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.edit_history ENABLE ROW LEVEL SECURITY;
+
+-- The app-managed login flow uses the anon key, so keep audit_log open.
+ALTER TABLE public.audit_log DISABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they exist (to avoid conflicts)
 DROP POLICY IF EXISTS "Admins can view all user roles" ON public.user_roles;
@@ -249,7 +286,7 @@ CREATE POLICY "System can insert edit history"
     );
 
 -- =====================================================
--- 5. TRIGGERS FOR AUTO-UPDATING TIMESTAMPS
+-- 6. TRIGGERS FOR AUTO-UPDATING TIMESTAMPS
 -- =====================================================
 
 -- Function to update updated_at
@@ -263,11 +300,17 @@ $$ LANGUAGE plpgsql;
 
 -- Drop existing triggers if they exist
 DROP TRIGGER IF EXISTS update_user_roles_updated_at ON public.user_roles;
+DROP TRIGGER IF EXISTS update_sims_users_updated_at ON public.sims_users;
 DROP TRIGGER IF EXISTS update_inspection_boxes_updated_at ON public.inspection_boxes;
 
 -- Create triggers
 CREATE TRIGGER update_user_roles_updated_at
     BEFORE UPDATE ON public.user_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_sims_users_updated_at
+    BEFORE UPDATE ON public.sims_users
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
@@ -277,7 +320,7 @@ CREATE TRIGGER update_inspection_boxes_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
--- 6. SET UP ADMIN ACCOUNTS
+-- 7. SET UP ADMIN ACCOUNTS
 -- =====================================================
 -- This will create admin entries for your specified emails
 -- Run this AFTER you create these accounts in Supabase Auth
@@ -312,17 +355,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =====================================================
--- 7. SETUP YOUR ADMIN ACCOUNTS
+-- 8. SETUP YOUR ADMIN ACCOUNTS
 -- =====================================================
 -- INSTRUCTIONS:
--- 1. First, create these accounts via the Supabase Auth dashboard or signup page
--- 2. Then run these commands to make them admins:
+-- 1. First, create these accounts in public.sims_users with SHA-256 password hashes
+-- 2. Then optionally keep user_roles/auth.users only if you still use Supabase Auth elsewhere
 
 -- SELECT setup_admin_user('adhammorsy2311@gmail.com');
 -- SELECT setup_admin_user('adham.ahmed@hanwhaegypt.com');
 
 -- =====================================================
--- 8. HELPFUL ADMIN QUERIES
+-- 9. HELPFUL ADMIN QUERIES
 -- =====================================================
 
 -- View all users and their roles
@@ -365,10 +408,16 @@ $$ LANGUAGE plpgsql;
 --     al.user_email,
 --     al.action,
 --     al.details,
+--     al.table_name,
 --     al.timestamp
 -- FROM public.audit_log al
 -- ORDER BY al.timestamp DESC
 -- LIMIT 50;
+
+-- View app-managed users
+-- SELECT email, role, created_at
+-- FROM public.sims_users
+-- ORDER BY created_at DESC;
 
 -- View edit history
 -- SELECT 
@@ -396,8 +445,11 @@ $$ LANGUAGE plpgsql;
 -- ORDER BY "Factory";
 
 -- =====================================================
--- 9. GRANT PERMISSIONS
+-- 10. GRANT PERMISSIONS
 -- =====================================================
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sims_users TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sims_users TO authenticated;
 
 -- Grant authenticated users access to tables
 GRANT SELECT ON public.user_roles TO authenticated;
@@ -407,6 +459,7 @@ GRANT SELECT ON public.inspection_boxes TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.inspection_boxes TO authenticated;
 
 GRANT SELECT, INSERT ON public.audit_log TO authenticated;
+GRANT SELECT, INSERT ON public.audit_log TO anon;
 
 GRANT SELECT, INSERT ON public.edit_history TO authenticated;
 
@@ -414,9 +467,9 @@ GRANT SELECT, INSERT ON public.edit_history TO authenticated;
 -- SETUP COMPLETE!
 -- =====================================================
 -- Next steps:
--- 1. Create accounts for adhammorsy2311@gmail.com and adham.ahmed@hanwhaegypt.com
--- 2. Run: SELECT setup_admin_user('adhammorsy2311@gmail.com');
--- 3. Run: SELECT setup_admin_user('adham.ahmed@hanwhaegypt.com');
--- 4. Test login with both accounts
--- 5. Verify admin permissions work
+-- 1. Insert at least one row into public.sims_users with role = 'master_admin'
+-- 2. Store the password as a SHA-256 hash, not plain text
+-- 3. Test login from login.html
+-- 4. Verify user management and audit logging work
+-- 5. Keep user_roles/auth.users only if you still need Supabase Auth elsewhere
 -- =====================================================

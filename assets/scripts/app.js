@@ -14,37 +14,7 @@ const supabaseClient = window.supabase.createClient(
     }
 );
 
-// 2️⃣ Force logout on every page load (refresh)
-window.addEventListener("load", () => {
-    sessionStorage.removeItem('sims_user');
-});
-
-// ==================== USER MANAGEMENT ====================
-const MASTER_ADMIN = "adhammorsy2311@gmail.com";
-
-let USER_CREDENTIALS = {
-    "adhammorsy2311@gmail.com": { password: "admin123", role: "admin" },
-    "adham.ahmed@hanwhaegypt.com": { password: "admin123", role: "admin" },
-    "mohamed_aref@hanwhaegypt.com": { password: "bigboss1977", role: "admin" },
-    "test@gmail.com": { password: "1234", role: "viewer" },
-};
-
-function loadUserCredentials() {
-    const stored = localStorage.getItem('sims_user_credentials');
-    if (stored) {
-        try {
-            USER_CREDENTIALS = JSON.parse(stored);
-        } catch (e) {
-            console.error('Failed to load user credentials:', e);
-        }
-    }
-}
-
-function saveUserCredentials() {
-    localStorage.setItem('sims_user_credentials', JSON.stringify(USER_CREDENTIALS));
-}
-
-loadUserCredentials();
+let allUsers = [];
 
 const EXPECTED_COLS = [
     'id', 'shipment', 'NO', 'ContainerNum', 'BoxNum', 'Container',
@@ -76,6 +46,7 @@ const elements = {
     dashboard: document.getElementById('dashboard'),
     userEmail: document.getElementById('userEmail'),
     userRole: document.getElementById('userRole'),
+    themeToggleBtn: document.getElementById('themeToggleBtn'),
     logoutBtn: document.getElementById('logoutBtn'),
     filesSelect: document.getElementById('filesSelect'),
     fileInput: document.getElementById('fileInput'),
@@ -121,7 +92,7 @@ const elements = {
 
 // ==================== AUTHENTICATION ====================
 function checkAuthentication() {
-    const storedUser = sessionStorage.getItem('sims_user');
+    const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) {
         window.location.href = 'login.html';
         return false;
@@ -129,43 +100,105 @@ function checkAuthentication() {
 
     try {
         const userData = JSON.parse(storedUser);
-        const email = userData.email;
-
-        if (!USER_CREDENTIALS[email]) {
-            alert('Your email is not authorized.');
-            sessionStorage.removeItem('sims_user');
-            window.location.href = 'login.html';
-            return false;
+        if (!userData?.email || !userData?.role) {
+            throw new Error('Invalid session payload');
         }
 
-        appState.currentUser = { email };
-        appState.currentRole = USER_CREDENTIALS[email].role;
+        appState.currentUser = {
+            id: userData.id || null,
+            email: userData.email
+        };
+        appState.currentRole = userData.role;
         appState.isAuthenticated = true;
 
         updateUIForUser();
 
-        logAudit({
-            userEmail: email,
-            action: 'USER_LOGIN',
-            details: `User ${email} logged in successfully`
-        });
-
         return true;
     } catch (err) {
         console.error('Auth error:', err);
-        sessionStorage.removeItem('sims_user');
+        sessionStorage.removeItem('currentUser');
         window.location.href = 'login.html';
         return false;
     }
 }
 
+async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function isMasterAdmin(role = appState.currentRole) {
+    return role === 'master_admin';
+}
+
+function isAdminRole(role = appState.currentRole) {
+    return role === 'admin' || role === 'master_admin';
+}
+
+function formatRoleLabel(role) {
+    return String(role || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function getStoredTheme() {
+    const storedTheme = localStorage.getItem('sims_theme');
+    return storedTheme === 'dark' ? 'dark' : 'light';
+}
+
+function getStoredActiveTable() {
+    const storedTable = localStorage.getItem('sims_active_table');
+    return tableOptions.some(option => option.key === storedTable) ? storedTable : 'inspection_boxes';
+}
+
+function updateThemeToggleLabel(theme) {
+    if (!elements.themeToggleBtn) return;
+    const isDark = theme === 'dark';
+    elements.themeToggleBtn.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+    elements.themeToggleBtn.setAttribute('aria-pressed', String(isDark));
+}
+
+function applyTheme(theme) {
+    const normalizedTheme = theme === 'dark' ? 'dark' : 'light';
+    document.body.setAttribute('data-theme', normalizedTheme);
+    localStorage.setItem('sims_theme', normalizedTheme);
+    updateThemeToggleLabel(normalizedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.body.getAttribute('data-theme') || 'light';
+    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+async function fetchUsers() {
+    if (!isMasterAdmin()) return [];
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('sims_users')
+            .select('id, email, role, password_plain, created_at')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        allUsers = data || [];
+        return allUsers;
+    } catch (error) {
+        console.error('Failed to fetch users:', error);
+        allUsers = [];
+        return [];
+    }
+}
+
 // Open Audit Modal
 function openAuditModal() {
-    if (appState.currentUser.email !== MASTER_ADMIN) {
+    if (!isMasterAdmin()) {
         alert('Access denied. Only Master Admin can view the audit log.');
         return;
     }
-    elements.auditModal.style.display = 'flex'; // must be flex for centering
+    elements.auditModal.classList.add('active');
     buildAuditUserFilter();
     buildAuditActionFilter();
     buildAuditTableFilter();
@@ -174,13 +207,13 @@ function openAuditModal() {
 
 // Close Audit Modal
 elements.closeAuditModal.addEventListener('click', () => {
-    elements.auditModal.style.display = 'none';
+    elements.auditModal.classList.remove('active');
 });
 
 // Optional: close if click outside modal content
 window.addEventListener('click', (e) => {
     if (e.target === elements.auditModal) {
-        elements.auditModal.style.display = 'none';
+        elements.auditModal.classList.remove('active');
     }
 });
 
@@ -223,12 +256,13 @@ function getFilteredRows() {
 function updateUIForUser() {
     const email = appState.currentUser.email;
     const role = appState.currentRole;
+    const roleLabel = formatRoleLabel(role);
 
     elements.userEmail.textContent = email;
-    elements.userRole.textContent = role.toUpperCase();
+    elements.userRole.innerHTML = `<span class="role-badge-text">${roleLabel}</span>`;
     elements.userRole.className = `role-badge ${role}`;
 
-    const isAdmin = role === 'admin';
+    const isAdmin = isAdminRole(role);
 
     if (elements.bulkActionsSection) {
         elements.bulkActionsSection.style.display = isAdmin ? 'block' : 'none';
@@ -241,7 +275,7 @@ function updateUIForUser() {
     if (elements.fileInput) elements.fileInput.disabled = !isAdmin;
     if (elements.applyAllBtn) elements.applyAllBtn.disabled = !isAdmin;
 
-    if (email === MASTER_ADMIN) {
+    if (isMasterAdmin(role)) {
         addUserManagementButton();
     }
 }
@@ -265,7 +299,8 @@ function addUserManagementButton() {
     btn.addEventListener('click', showUserManagement);
 }
 
-function showUserManagement() {
+async function showUserManagement() {
+    await fetchUsers();
     const modal = document.createElement('div');
     modal.className = 'modal active';
     modal.innerHTML = `
@@ -281,8 +316,9 @@ function showUserManagement() {
                         <input type="email" id="newUserEmail" placeholder="Email address" style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
                         <input type="password" id="newUserPassword" placeholder="Password" style="flex: 1; min-width: 150px; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
                         <select id="newUserRole" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
-                            <option value="viewer">Viewer</option>
+                            <option value="master_admin">Master Admin</option>
                             <option value="admin">Admin</option>
+                            <option value="viewer">Viewer</option>
                         </select>
                         <button onclick="addNewUser()" class="btn btn-primary" style="width: auto; margin: 0;">Add User</button>
                     </div>
@@ -301,35 +337,39 @@ function renderUsersList() {
     const usersList = document.getElementById('usersList');
     if (!usersList) return;
 
-    const html = Object.entries(USER_CREDENTIALS).map(([email, userData]) => {
-        const isMaster = email === MASTER_ADMIN;
+    const html = allUsers.map(user => {
+        const isCurrentUser = user.id === appState.currentUser?.id;
+        const isMaster = user.role === 'master_admin';
         return `
             <div class="user-card" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px;">
                 <div style="flex: 1;">
-                    <strong>${email}</strong>
+                    <strong>${user.email}</strong>
                     <br>
-                    <span style="color: #6b7280; font-size: 13px;">Role: ${userData.role.toUpperCase()}</span>
+                    <span style="color: #6b7280; font-size: 13px;">Role: ${formatRoleLabel(user.role)}</span>
                     ${isMaster ? '<span style="color: #667eea; font-size: 13px;"> (Master Admin)</span>' : ''}
                     <br>
-                    <span style="color: #9ca3af; font-size: 12px;">Password: ${userData.password}</span>
+                    <span style="color: #9ca3af; font-size: 12px;">Password: ${user.password_plain || ''}</span>
+                    <br>
+                    <span style="color: #9ca3af; font-size: 12px;">Created: ${new Date(user.created_at).toLocaleString()}</span>
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     ${!isMaster ? `
-                        <input type="password" id="pwd_${email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="New password" 
-                            style="padding: 6px; border: 1px solid #ddd; border-radius: 6px; width: 120px;">
-                        <button onclick="changeUserPassword('${email}')" class="btn" 
+                        <button onclick="changeUserPassword('${user.id}')" class="btn" 
                             style="background: #667eea; color: white; width: auto; margin: 0; padding: 6px 12px;">
-                            Change Password
+                            Reset Password
                         </button>
-                        <select onchange="changeUserRole('${email}', this.value)" 
+                        <select onchange="changeUserRole('${user.id}', this.value)" 
                             style="padding: 6px; border: 1px solid #ddd; border-radius: 6px;">
-                            <option value="viewer" ${userData.role === 'viewer' ? 'selected' : ''}>Viewer</option>
-                            <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            <option value="">Change Role...</option>
+                            <option value="master_admin" ${user.role === 'master_admin' ? 'disabled' : ''}>Master Admin</option>
+                            <option value="admin" ${user.role === 'admin' ? 'disabled' : ''}>Admin</option>
+                            <option value="viewer" ${user.role === 'viewer' ? 'disabled' : ''}>Viewer</option>
                         </select>
-                        <button onclick="removeUser('${email}')" class="btn" 
+                        ${!isCurrentUser ? `
+                        <button onclick="removeUser('${user.id}')" class="btn" 
                             style="background: #ef4444; color: white; width: auto; margin: 0; padding: 6px 12px;">
                             Remove
-                        </button>
+                        </button>` : ''}
                     ` : '<span style="color: #6b7280; font-size: 13px;">Cannot be modified</span>'}
                 </div>
             </div>
@@ -339,7 +379,7 @@ function renderUsersList() {
     usersList.innerHTML = html || '<p style="color: #6b7280;">No users found</p>';
 }
 
-window.addNewUser = function () {
+window.addNewUser = async function () {
     const emailInput = document.getElementById('newUserEmail');
     const passwordInput = document.getElementById('newUserPassword');
     const roleSelect = document.getElementById('newUserRole');
@@ -358,94 +398,154 @@ window.addNewUser = function () {
         return;
     }
 
-    if (!password || password.length < 4) {
-        alert('Please enter a password (minimum 4 characters)');
+    if (!password || password.length < 6) {
+        alert('Please enter a password (minimum 6 characters)');
         return;
     }
 
-    if (USER_CREDENTIALS[email]) {
+    if (allUsers.some(user => user.email.toLowerCase() === email)) {
         alert('User already exists');
         return;
     }
 
-    USER_CREDENTIALS[email] = { password: password, role: role };
-    saveUserCredentials();
-    logAudit({
-        userEmail: appState.currentUser?.email || 'UNKNOWN',
-        action: 'USER_ADDED',
-        details: `Added user ${email} with role ${role}`
-    });
+    try {
+        const passwordHash = await hashPassword(password);
+        const { error } = await supabaseClient
+            .from('sims_users')
+            .insert([{
+                email,
+                password_hash: passwordHash,
+                password_plain: password,
+                role
+            }]);
 
-    emailInput.value = '';
-    passwordInput.value = '';
-    renderUsersList();
+        if (error) throw error;
+
+        await logAudit({
+            userId: appState.currentUser?.id || null,
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'USER_ADDED',
+            details: `Added user ${email} with role ${role}`
+        });
+
+        emailInput.value = '';
+        passwordInput.value = '';
+        roleSelect.value = 'viewer';
+        await fetchUsers();
+        renderUsersList();
+    } catch (error) {
+        console.error('Failed to add user:', error);
+        alert('Failed to add user');
+    }
 };
 
-window.changeUserPassword = function (email) {
-    const inputId = 'pwd_' + email.replace(/[^a-zA-Z0-9]/g, '_');
-    const passwordInput = document.getElementById(inputId);
+window.changeUserPassword = async function (userId) {
+    const targetUser = allUsers.find(user => user.id === userId);
+    if (!targetUser) return;
 
-    if (!passwordInput) return;
-
-    const newPassword = passwordInput.value.trim();
-
-    if (!newPassword || newPassword.length < 4) {
-        alert('Please enter a valid password (minimum 4 characters)');
+    const newPassword = prompt(`Enter a new password for ${targetUser.email} (minimum 6 characters):`);
+    if (!newPassword || newPassword.trim().length < 6) {
+        alert('Please enter a valid password (minimum 6 characters)');
         return;
     }
 
-    USER_CREDENTIALS[email].password = newPassword;
-    saveUserCredentials();
-    logAudit({
-        userEmail: appState.currentUser?.email || 'UNKNOWN',
-        action: 'USER_PASSWORD_CHANGED',
-        details: `Changed password for ${email}`
-    });
+    try {
+        const passwordHash = await hashPassword(newPassword.trim());
+        const { error } = await supabaseClient
+            .from('sims_users')
+            .update({
+                password_hash: passwordHash,
+                password_plain: newPassword.trim()
+            })
+            .eq('id', userId);
 
-    passwordInput.value = '';
-    renderUsersList();
-    alert('Password updated successfully');
+        if (error) throw error;
+
+        await logAudit({
+            userId: appState.currentUser?.id || null,
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'USER_PASSWORD_CHANGED',
+            details: `Changed password for ${targetUser.email}`
+        });
+
+        alert('Password updated successfully');
+    } catch (error) {
+        console.error('Failed to change password:', error);
+        alert('Failed to change password');
+    }
 };
 
-window.changeUserRole = function (email, newRole) {
-    if (email === MASTER_ADMIN) {
+window.changeUserRole = async function (userId, newRole) {
+    const targetUser = allUsers.find(user => user.id === userId);
+    if (!targetUser || !newRole) return;
+
+    if (targetUser.role === 'master_admin') {
         alert('Cannot change master admin role');
         return;
     }
 
-    USER_CREDENTIALS[email].role = newRole;
-    saveUserCredentials();
-    logAudit({
-        userEmail: appState.currentUser?.email || 'UNKNOWN',
-        action: 'USER_ROLE_CHANGED',
-        details: `Changed ${email} role to ${newRole}`
-    });
-    renderUsersList();
+    try {
+        const { error } = await supabaseClient
+            .from('sims_users')
+            .update({ role: newRole })
+            .eq('id', userId);
+
+        if (error) throw error;
+
+        await logAudit({
+            userId: appState.currentUser?.id || null,
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'USER_ROLE_CHANGED',
+            details: `Changed ${targetUser.email} role to ${newRole}`
+        });
+
+        await fetchUsers();
+        renderUsersList();
+    } catch (error) {
+        console.error('Failed to change role:', error);
+        alert('Failed to change role');
+    }
 };
 
-window.removeUser = function (email) {
-    if (email === MASTER_ADMIN) {
+window.removeUser = async function (userId) {
+    const targetUser = allUsers.find(user => user.id === userId);
+    if (!targetUser) return;
+
+    if (targetUser.role === 'master_admin') {
         alert('Cannot remove master admin');
         return;
     }
 
-    if (!confirm(`Are you sure you want to remove ${email}?`)) {
+    if (!confirm(`Are you sure you want to remove ${targetUser.email}?`)) {
         return;
     }
 
-    delete USER_CREDENTIALS[email];
-    saveUserCredentials();
-    logAudit({
-        userEmail: appState.currentUser?.email || 'UNKNOWN',
-        action: 'USER_REMOVED',
-        details: `Removed user ${email}`
-    });
+    try {
+        const { error } = await supabaseClient
+            .from('sims_users')
+            .delete()
+            .eq('id', userId);
 
-    renderUsersList();
+        if (error) throw error;
+
+        await logAudit({
+            userId: appState.currentUser?.id || null,
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'USER_REMOVED',
+            details: `Removed user ${targetUser.email}`
+        });
+
+        await fetchUsers();
+        renderUsersList();
+    } catch (error) {
+        console.error('Failed to remove user:', error);
+        alert('Failed to remove user');
+    }
 };
 
 // ==================== AUDIT LOGGING ====================
 async function logAudit({
+    userId = null,
     userEmail,
     action,
     details,
@@ -459,8 +559,8 @@ async function logAudit({
     }
 
     const payload = {
-        user_id: null,              // no auth
-        user_email: userEmail,      // REAL USER EMAIL
+        user_id: userId,
+        user_email: userEmail,
         action,
         details,
         table_name: tableName,
@@ -544,7 +644,7 @@ async function loadAuditLogs(filters = {}) {
 function buildAuditUserFilter() {
     if (!elements.auditUserFilter) return;
 
-    const users = Object.keys(USER_CREDENTIALS).sort();
+    const users = [...new Set(allUsers.map(user => user.email))].sort();
     const options = ['<option value="all">All Users</option>']
         .concat(users.map(u => `<option value="${u}">${u}</option>`))
         .join('');
@@ -557,6 +657,8 @@ function buildAuditActionFilter() {
 
     const actionOptions = [
         'USER_LOGIN',
+        'USER_LOGIN_FAILED',
+        'USER_LOGOUT',
         'USER_ADDED',
         'USER_PASSWORD_CHANGED',
         'USER_ROLE_CHANGED',
@@ -780,6 +882,8 @@ function setActiveFile(key) {
     if (!appState.files[key]) return;
 
     appState.activeKey = key;
+    appState.activeTable = key;
+    localStorage.setItem('sims_active_table', key);
     elements.filesSelect.value = key;
 
     buildShipmentFilter();
@@ -880,7 +984,7 @@ function renderTable(rows) {
     if (!appState.activeKey) return;
 
     const cols = appState.files[appState.activeKey].columns || EXPECTED_COLS;
-    const isAdmin = appState.currentRole === 'admin';
+    const isAdmin = isAdminRole(appState.currentRole);
 
     const trh = document.createElement('tr');
     cols.forEach(c => {
@@ -1330,6 +1434,15 @@ const EXPORT_TYPE_OPTIONS = {
     discrepancies: { fileSuffix: "discrepancies", sheetName: "Discrepancies" }
 };
 
+const EXPORT_TYPE_LABELS = {
+    data_summary: 'Data Summary',
+    remaining: 'Remaining',
+    in_progress: 'In Progress',
+    completed: 'Completed',
+    not_started: 'Not Started',
+    discrepancies: 'Discrepancies'
+};
+
 function applyCellStyle(ws, address, style) {
     if (!ws[address]) return;
     ws[address].s = { ...(ws[address].s || {}), ...style };
@@ -1754,11 +1867,14 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
     const outName = `${entry.name.replace(/\s+/g, '_')}_${exportConfig.fileSuffix}_${nowTimestampForName()}.xlsx`;
     XLSX.writeFile(wb, outName);
 
-    logAudit(
-        'DATA_EXPORT',
-        `Exported ${entry.rows.length} records as ${selectedExportType}`,
-        appState.activeTable
-    );
+    const exportLabel = EXPORT_TYPE_LABELS[selectedExportType] || selectedExportType;
+
+    logAudit({
+        userEmail: appState.currentUser?.email || 'UNKNOWN',
+        action: 'DATA_EXPORT',
+        details: `Exported "${exportLabel}" report with ${entry.rows.length} records (${outName})`,
+        tableName: appState.activeTable
+    });
 }
 
 function toggleExportMenu(forceOpen = null) {
@@ -1842,8 +1958,20 @@ async function applyBulkRemark(value) {
 
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
+    if (elements.themeToggleBtn) {
+        elements.themeToggleBtn.addEventListener('click', toggleTheme);
+    }
+
     elements.logoutBtn.addEventListener('click', () => {
-        sessionStorage.removeItem('sims_user'); // ✅ per-tab logout
+        if (appState.currentUser) {
+            logAudit({
+                userId: appState.currentUser.id,
+                userEmail: appState.currentUser.email,
+                action: 'USER_LOGOUT',
+                details: `User ${appState.currentUser.email} logged out`
+            });
+        }
+        sessionStorage.removeItem('currentUser');
         window.location.href = 'login.html';
     });
 
@@ -1933,14 +2061,7 @@ function setupEventListeners() {
         });
     }
 
-    elements.viewAuditBtn.addEventListener('click', () => {
-        elements.auditModal.classList.add('active');
-
-        buildAuditUserFilter();
-        buildAuditActionFilter();
-        buildAuditTableFilter();
-        loadAuditLogs();
-    });
+    elements.viewAuditBtn.addEventListener('click', openAuditModal);
 
     elements.closeAuditModal.addEventListener('click', () => {
         elements.auditModal.classList.remove('active');
@@ -1966,6 +2087,7 @@ function setupEventListeners() {
     // FIX: Table selector event listener
     elements.filesSelect.addEventListener('change', async () => {
         appState.activeTable = elements.filesSelect.value;
+        localStorage.setItem('sims_active_table', appState.activeTable);
         await loadFromSupabase();
     });
 
@@ -2035,17 +2157,12 @@ function setupEventListeners() {
 
 // ==================== INITIALIZATION ====================
 async function init() {
+    applyTheme(getStoredTheme());
+    appState.activeTable = getStoredActiveTable();
+
     if (!checkAuthentication()) return;
 
-    // Only show Audit Log button if user is master admin
-    if (appState.currentUser.email !== MASTER_ADMIN) {
-        elements.viewAuditBtn.style.display = 'none'; // hide the button completely
-    } else {
-        // Add click listener for master admin
-        elements.viewAuditBtn.addEventListener('click', () => {
-            openAuditModal(); // function that opens audit modal
-        });
-    }
+    elements.viewAuditBtn.style.display = isMasterAdmin() ? 'inline-flex' : 'none';
 
     // Populate table dropdown
     elements.filesSelect.innerHTML = tableOptions
@@ -2057,7 +2174,10 @@ async function init() {
     setupEventListeners();
     buildAuditActionFilter();
     buildAuditTableFilter();
-    await loadFromSupabase();
+    await Promise.all([
+        loadFromSupabase(),
+        isMasterAdmin() ? fetchUsers() : Promise.resolve([])
+    ]);
 
     console.log('✅ Application initialized for:', appState.currentUser.email);
     console.log('✅ Role:', appState.currentRole);
