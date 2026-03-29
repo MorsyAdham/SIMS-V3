@@ -54,7 +54,20 @@
                     <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple />
                     📁 Upload File
                 </label>
-                <button id="exportBtn" class="btn btn-primary">📊 Export</button>
+                <div class="export-dropdown" id="exportDropdown">
+                    <button id="exportBtn" class="btn btn-primary export-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                        📊 Export
+                    </button>
+                    <div id="exportMenu" class="export-menu" hidden>
+                        <button class="export-option" type="button" data-export-type="data_summary" data-description="Full report package with the styled data sheet, analytics, summary, and factory analytics." title="Full report package with the styled data sheet, analytics, summary, and factory analytics.">Data Summary</button>
+                        <button class="export-option" type="button" data-export-type="remaining" data-description="All boxes that are not completed yet, including both in progress and not started rows." title="All boxes that are not completed yet, including both in progress and not started rows.">Remaining</button>
+                        <button class="export-option" type="button" data-export-type="in_progress" data-description="Only boxes currently marked in progress." title="Only boxes currently marked in progress.">In Progress</button>
+                        <button class="export-option" type="button" data-export-type="completed" data-description="Only boxes marked done or completed." title="Only boxes marked done or completed.">Completed</button>
+                        <button class="export-option" type="button" data-export-type="not_started" data-description="Only boxes with no inspection progress yet." title="Only boxes with no inspection progress yet.">Not Started</button>
+                        <button class="export-option" type="button" data-export-type="discrepancies" data-description="Only boxes that have discrepancy notes filled in." title="Only boxes that have discrepancy notes filled in.">Discrepancies</button>
+                        <div id="exportMenuHint" class="export-menu-hint">Hover an option to see what the export will contain.</div>
+                    </div>
+                </div>
                 <button id="viewAuditBtn" class="btn btn-secondary">📋 Audit Log</button>
             </div>
         </section>
@@ -62,14 +75,12 @@
         <!-- Filters Section -->
         <section class="controls card">
             <h3>Filters</h3>
+            <div style="display: none;">
+                <select id="shipmentFilter" class="styled-select" aria-hidden="true" tabindex="-1">
+                    <option value="all">All</option>
+                </select>
+            </div>
             <div class="filters">
-                <label>
-                    Shipment
-                    <select id="shipmentFilter" class="styled-select">
-                        <option value="all">All</option>
-                    </select>
-                </label>
-
                 <label>
                     Factory
                     <select id="factoryFilter" class="styled-select">
@@ -95,6 +106,15 @@
                     </select>
                 </label>
 
+                <label>
+                    Box Type
+                    <select id="boxTypeFilter" class="styled-select">
+                        <option value="all">All</option>
+                        <option value="normal">Normal</option>
+                        <option value="multi">Multi-pack</option>
+                    </select>
+                </label>
+
                 <label class="search-label">
                     Search
                     <input id="searchInput" placeholder="Search boxes, products..." class="search-input" />
@@ -110,7 +130,12 @@
 
         <!-- Summary Cards -->
         <section class="summary-section">
+            <div class="summary-toggle" role="tablist" aria-label="Summary Type">
+                <button id="showBoxSummaryBtn" class="summary-toggle-btn active" type="button">Boxes</button>
+                <button id="showContainerSummaryBtn" class="summary-toggle-btn" type="button">Containers</button>
+            </div>
             <div class="summary" id="summaryWrap"></div>
+            <div class="summary container-summary" id="containerSummaryWrap"></div>
 
             <div class="pack-stats">
                 <div class="card small-stat" id="multipackCard">
@@ -182,6 +207,13 @@
                 </div>
             </div>
 
+            <div class="card chart-card">
+                <h3>Boxes by Factory</h3>
+                <div class="chart-container">
+                    <canvas id="boxesByFactoryChart"></canvas>
+                </div>
+            </div>
+
             <div class="card chart-card full-width">
                 <h3>Daily Completion Progress</h3>
                 <div class="chart-container">
@@ -205,6 +237,13 @@
                     <select id="auditUserFilter">
                         <option value="all">All Users</option>
                     </select>
+                    <select id="auditActionFilter">
+                        <option value="all">All Actions</option>
+                    </select>
+                    <select id="auditTableFilter">
+                        <option value="all">All Tables</option>
+                    </select>
+                    <input type="text" id="auditSearchInput" placeholder="Search details, user, table...">
                     <button id="filterAuditBtn" class="btn btn-sm">Filter</button>
                 </div>
                 <div id="auditLogContent" class="audit-log-content">
@@ -228,7 +267,7 @@
     </div>
 
     <!-- Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>

@@ -250,6 +250,60 @@ body {
     font-weight: 600;
 }
 
+.export-dropdown {
+    position: relative;
+}
+
+.export-trigger::after {
+    content: "▾";
+    font-size: 12px;
+    margin-left: 4px;
+}
+
+.export-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 320px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    padding: 8px;
+    z-index: 1100;
+}
+
+.export-option {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.export-option:hover,
+.export-option:focus {
+    background: rgba(102, 126, 234, 0.1);
+    color: var(--primary-dark);
+    outline: none;
+}
+
+.export-menu-hint {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 /* ========== FILTERS ========== */
 .controls h3 {
     margin-bottom: 15px;
@@ -320,6 +374,38 @@ body {
     gap: 15px;
 }
 
+.summary-toggle {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: 4px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+}
+
+.summary-toggle-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.summary-toggle-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.summary-toggle-btn:not(.active):hover {
+    background: var(--bg);
+    color: var(--accent);
+}
+
 .summary {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -353,6 +439,10 @@ body {
     margin: 8px 0;
 }
 
+.container-summary {
+    margin-top: 12px;
+}
+
 .pack-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -360,14 +450,14 @@ body {
 }
 
 .small-stat {
-    cursor: pointer;
-    transition: all 0.2s ease;
+    cursor: default;
+    transition: none;
 }
 
 .small-stat:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-lg);
-    border-color: var(--primary);
+    transform: none;
+    box-shadow: none;
+    border-color: var(--border);
 }
 
 .stat-header {
@@ -624,6 +714,11 @@ td input[type="date"] {
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 14px;
+}
+
+.audit-filters input[type="text"] {
+    min-width: 220px;
+    flex: 1 1 220px;
 }
 
 .audit-log-content {

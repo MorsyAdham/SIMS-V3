@@ -59,8 +59,9 @@ const appState = {
     isAuthenticated: false,
     files: {},
     activeKey: null,
-    charts: { progress: null, container: null, daily: null },
-    activeTable: 'inspection_boxes'
+    charts: { progress: null, container: null, factory: null, daily: null },
+    activeTable: 'inspection_boxes',
+    summaryMode: 'boxes'
 };
 
 // Table options
@@ -81,14 +82,21 @@ const elements = {
     uploadLabel: document.getElementById('uploadLabel'),
     refreshBtn: document.getElementById('refreshBtn'),
     exportBtn: document.getElementById('exportBtn'),
+    exportDropdown: document.getElementById('exportDropdown'),
+    exportMenu: document.getElementById('exportMenu'),
+    exportMenuHint: document.getElementById('exportMenuHint'),
     viewAuditBtn: document.getElementById('viewAuditBtn'),
     shipmentFilter: document.getElementById('shipmentFilter'),
     factoryFilter: document.getElementById('factoryFilter'),
     containerFilter: document.getElementById('containerFilter'),
     statusFilter: document.getElementById('statusFilter'),
+    boxTypeFilter: document.getElementById('boxTypeFilter'),
     searchInput: document.getElementById('searchInput'),
     clearFiltersBtn: document.getElementById('clearFiltersBtn'),
+    showBoxSummaryBtn: document.getElementById('showBoxSummaryBtn'),
+    showContainerSummaryBtn: document.getElementById('showContainerSummaryBtn'),
     summaryWrap: document.getElementById('summaryWrap'),
+    containerSummaryWrap: document.getElementById('containerSummaryWrap'),
     rowsCount: document.getElementById('rowsCount'),
     multipackCard: document.getElementById('multipackCard'),
     normalPackCard: document.getElementById('normalPackCard'),
@@ -105,21 +113,11 @@ const elements = {
     auditDateFrom: document.getElementById('auditDateFrom'),
     auditDateTo: document.getElementById('auditDateTo'),
     auditUserFilter: document.getElementById('auditUserFilter'),
+    auditActionFilter: document.getElementById('auditActionFilter'),
+    auditTableFilter: document.getElementById('auditTableFilter'),
+    auditSearchInput: document.getElementById('auditSearchInput'),
     filterAuditBtn: document.getElementById('filterAuditBtn')
 };
-
-// ==================== MULTIPACK / NORMAL CARD CLICK LISTENERS ====================
-elements.multipackCard.addEventListener('click', () => {
-    elements.statusFilter.value = 'all'; // reset status filter
-    const rows = getFilteredRows().filter(r => Number(r.ItemCount ?? 0) > 1);
-    renderTable(rows); // render only multipacks
-});
-
-elements.normalPackCard.addEventListener('click', () => {
-    elements.statusFilter.value = 'all'; // reset status filter
-    const rows = getFilteredRows().filter(r => Number(r.ItemCount ?? 0) <= 1);
-    renderTable(rows); // render only normal packs
-});
 
 // ==================== AUTHENTICATION ====================
 function checkAuthentication() {
@@ -168,7 +166,10 @@ function openAuditModal() {
         return;
     }
     elements.auditModal.style.display = 'flex'; // must be flex for centering
-    loadAuditLog();
+    buildAuditUserFilter();
+    buildAuditActionFilter();
+    buildAuditTableFilter();
+    loadAuditLogs();
 }
 
 // Close Audit Modal
@@ -193,12 +194,14 @@ function getFilteredRows() {
     const fFactory = elements.factoryFilter.value || 'all';
     const fContainer = elements.containerFilter.value || 'all';
     const fStatus = elements.statusFilter.value || 'all';
+    const fBoxType = elements.boxTypeFilter.value || 'all';
     const q = (elements.searchInput.value || '').trim().toLowerCase();
 
     return allRows.filter(r => {
         if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
         if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
         if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
+        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
@@ -483,7 +486,7 @@ async function loadAuditLogs(filters = {}) {
             .from('audit_log')
             .select('*')
             .order('timestamp', { ascending: false })
-            .limit(100);
+            .limit(200);
 
         if (filters.dateFrom) {
             query = query.gte('timestamp', filters.dateFrom);
@@ -499,11 +502,39 @@ async function loadAuditLogs(filters = {}) {
             query = query.eq('user_email', filters.user);
         }
 
+        if (filters.action && filters.action !== 'all') {
+            query = query.eq('action', filters.action);
+        }
+
+        if (filters.table && filters.table !== 'all') {
+            if (filters.table === '__none__') {
+                query = query.is('table_name', null);
+            } else {
+                query = query.eq('table_name', filters.table);
+            }
+        }
+
         const { data, error } = await query;
 
         if (error) throw error;
 
-        displayAuditLogs(data || []);
+        let filteredLogs = data || [];
+
+        if (filters.search) {
+            const searchNeedle = filters.search.trim().toLowerCase();
+            filteredLogs = filteredLogs.filter(log => {
+                const haystack = [
+                    log.user_email,
+                    log.action,
+                    log.table_name,
+                    log.details,
+                    log.ip_address
+                ].join(' ').toLowerCase();
+                return haystack.includes(searchNeedle);
+            });
+        }
+
+        displayAuditLogs(filteredLogs);
     } catch (error) {
         console.error('Failed to load audit logs:', error);
         elements.auditLogContent.innerHTML = '<p class="error-text">Failed to load audit logs</p>';
@@ -519,6 +550,39 @@ function buildAuditUserFilter() {
         .join('');
 
     elements.auditUserFilter.innerHTML = options;
+}
+
+function buildAuditActionFilter() {
+    if (!elements.auditActionFilter) return;
+
+    const actionOptions = [
+        'USER_LOGIN',
+        'USER_ADDED',
+        'USER_PASSWORD_CHANGED',
+        'USER_ROLE_CHANGED',
+        'USER_REMOVED',
+        'DATA_UPDATE',
+        'DATA_EXPORT',
+        'BULK_UPDATE',
+        'FILE_UPLOADED'
+    ];
+
+    elements.auditActionFilter.innerHTML = ['<option value="all">All Actions</option>']
+        .concat(actionOptions.map(action => `<option value="${action}">${action}</option>`))
+        .join('');
+}
+
+function buildAuditTableFilter() {
+    if (!elements.auditTableFilter) return;
+
+    const tableNames = [
+        ...new Set(tableOptions.map(option => option.key))
+    ].sort((a, b) => a.localeCompare(b));
+
+    elements.auditTableFilter.innerHTML = ['<option value="all">All Tables</option>']
+        .concat(tableNames.map(tableName => `<option value="${tableName}">${tableName}</option>`))
+        .concat('<option value="__none__">No Table</option>')
+        .join('');
 }
 
 function displayAuditLogs(logs) {
@@ -777,12 +841,14 @@ function renderFilteredAndLive() {
     const fFactory = elements.factoryFilter.value || 'all';
     const fContainer = elements.containerFilter.value || 'all';
     const fStatus = elements.statusFilter.value || 'all';
+    const fBoxType = elements.boxTypeFilter.value || 'all';
     const q = (elements.searchInput.value || '').trim().toLowerCase();
 
     const filtered = allRows.filter(r => {
         if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
         if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
         if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
+        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
@@ -952,6 +1018,110 @@ function renderSummary(rows) {
             <div class="muted">To complete</div>
         </div>
     `;
+
+    renderContainerSummary(rows);
+    updateSummaryView();
+}
+
+function getContainerMetrics(rows) {
+    const byContainer = {};
+
+    rows.forEach(r => {
+        const containerNum = String(r.ContainerNum ?? '').trim();
+        if (!containerNum) return;
+
+        if (!byContainer[containerNum]) {
+            byContainer[containerNum] = {
+                total: 0,
+                completed: 0,
+                inProgress: 0,
+                notStarted: 0
+            };
+        }
+
+        const status = classifyStatus(r.REMARKS);
+        byContainer[containerNum].total++;
+
+        if (status === 'Completed') byContainer[containerNum].completed++;
+        else if (status === 'In Progress') byContainer[containerNum].inProgress++;
+        else byContainer[containerNum].notStarted++;
+    });
+
+    let completed = 0;
+    let inProgress = 0;
+    let notStarted = 0;
+
+    Object.values(byContainer).forEach(container => {
+        if (container.total > 0 && container.completed === container.total) {
+            completed++;
+        } else if (container.notStarted === container.total) {
+            notStarted++;
+        } else {
+            inProgress++;
+        }
+    });
+
+    const total = Object.keys(byContainer).length;
+    const remaining = inProgress + notStarted;
+    const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+
+    return { total, completed, inProgress, notStarted, remaining, percent };
+}
+
+function renderContainerSummary(rows) {
+    if (!elements.containerSummaryWrap) return;
+
+    const metrics = getContainerMetrics(rows);
+
+    elements.containerSummaryWrap.innerHTML = `
+        <div class="card">
+            <strong>Total Containers</strong>
+            <div class="big">${metrics.total}</div>
+            <div class="muted">Unique containers in view</div>
+        </div>
+        <div class="card">
+            <strong>Completed Containers</strong>
+            <div class="big" style="color: var(--success)">${metrics.completed}</div>
+            <div class="muted">${metrics.percent}% fully finished</div>
+        </div>
+        <div class="card">
+            <strong>In Progress Containers</strong>
+            <div class="big" style="color: var(--warning)">${metrics.inProgress}</div>
+            <div class="muted">Mixed completion status</div>
+        </div>
+        <div class="card">
+            <strong>Not Started Containers</strong>
+            <div class="big">${metrics.notStarted}</div>
+            <div class="muted">All boxes still pending</div>
+        </div>
+        <div class="card">
+            <strong>Remaining Containers</strong>
+            <div class="big" style="color: var(--primary)">${metrics.remaining}</div>
+            <div class="muted">Not fully complete</div>
+        </div>
+    `;
+}
+
+function updateSummaryView() {
+    const showBoxes = appState.summaryMode === 'boxes';
+
+    if (elements.summaryWrap) {
+        elements.summaryWrap.style.display = showBoxes ? 'grid' : 'none';
+    }
+
+    if (elements.containerSummaryWrap) {
+        elements.containerSummaryWrap.style.display = showBoxes ? 'none' : 'grid';
+    }
+
+    if (elements.showBoxSummaryBtn) {
+        elements.showBoxSummaryBtn.classList.toggle('active', showBoxes);
+        elements.showBoxSummaryBtn.setAttribute('aria-pressed', String(showBoxes));
+    }
+
+    if (elements.showContainerSummaryBtn) {
+        elements.showContainerSummaryBtn.classList.toggle('active', !showBoxes);
+        elements.showContainerSummaryBtn.setAttribute('aria-pressed', String(!showBoxes));
+    }
 }
 
 function updateMultipackNormalCounts() {
@@ -968,21 +1138,54 @@ function updateMultipackNormalCounts() {
     elements.normalCount.textContent = normal;
 }
 
+function matchesBoxTypeFilter(row, filterValue) {
+    if (filterValue === 'all') return true;
+
+    const itemCount = Number(row.ItemCount ?? 0) || 0;
+
+    if (filterValue === 'multi') return itemCount > 1;
+    if (filterValue === 'normal') return itemCount <= 1;
+
+    return true;
+}
+
+function sortContainerLabels(labels) {
+    return [...labels].sort((a, b) => {
+        const aText = String(a ?? '').trim();
+        const bText = String(b ?? '').trim();
+        const aNum = Number(aText);
+        const bNum = Number(bText);
+        const aIsNumeric = aText !== '' && Number.isFinite(aNum);
+        const bIsNumeric = bText !== '' && Number.isFinite(bNum);
+
+        if (aIsNumeric && bIsNumeric) return aNum - bNum;
+        if (aIsNumeric) return -1;
+        if (bIsNumeric) return 1;
+        return aText.localeCompare(bText, undefined, { numeric: true, sensitivity: 'base' });
+    });
+}
+
 // Rendering charts and other functions continue in Part 3...
 // Continued from Part 2...
 
 // ==================== CHARTS ====================
 function renderCharts(rows) {
     const byContainer = {};
+    const byFactory = {};
 
     rows.forEach(r => {
         const cont = String(r.ContainerNum ?? 'NA');
         if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
         byContainer[cont].total++;
         if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
+
+        const factory = String(r.Factory ?? 'Unknown').trim() || 'Unknown';
+        if (!byFactory[factory]) byFactory[factory] = { total: 0, finished: 0 };
+        byFactory[factory].total++;
+        if (isCompleted(r.REMARKS)) byFactory[factory].finished++;
     });
 
-    const labels = Object.keys(byContainer).sort();
+    const labels = sortContainerLabels(Object.keys(byContainer));
     const finishedData = labels.map(l => byContainer[l].finished);
     const remainingData = labels.map(l => byContainer[l].total - byContainer[l].finished);
 
@@ -996,6 +1199,31 @@ function renderCharts(rows) {
                 datasets: [
                     { label: 'Finished', data: finishedData, backgroundColor: '#10b981' },
                     { label: 'Remaining', data: remainingData, backgroundColor: '#f59e0b' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+            }
+        });
+    }
+
+    const factoryLabels = Object.keys(byFactory).sort();
+    const factoryFinishedData = factoryLabels.map(label => byFactory[label].finished);
+    const factoryRemainingData = factoryLabels.map(label => byFactory[label].total - byFactory[label].finished);
+
+    const ctxFactory = document.getElementById('boxesByFactoryChart')?.getContext('2d');
+    if (ctxFactory) {
+        if (appState.charts.factory) appState.charts.factory.destroy();
+        appState.charts.factory = new Chart(ctxFactory, {
+            type: 'bar',
+            data: {
+                labels: factoryLabels,
+                datasets: [
+                    { label: 'Finished', data: factoryFinishedData, backgroundColor: '#10b981' },
+                    { label: 'Remaining', data: factoryRemainingData, backgroundColor: '#f59e0b' }
                 ]
             },
             options: {
@@ -1082,141 +1310,463 @@ function renderCharts(rows) {
     }
 }
 
+const EXCEL_REPORT_THEME = {
+    titleFill: "1f4e78",
+    headerFill: "2f6ea5",
+    accentFill: "dceaf7",
+    summaryFill: "d7eadf",
+    altRowFill: "f7fbff",
+    border: "c8d6e5",
+    textDark: "1f2933",
+    textLight: "ffffff"
+};
+const EXPORT_EXCLUDED_COLS = new Set(["id", "shipment"]);
+const EXPORT_TYPE_OPTIONS = {
+    data_summary: { fileSuffix: "data_summary", sheetName: "Data" },
+    remaining: { fileSuffix: "remaining", sheetName: "Remaining" },
+    in_progress: { fileSuffix: "in_progress", sheetName: "In_Progress" },
+    completed: { fileSuffix: "completed", sheetName: "Completed" },
+    not_started: { fileSuffix: "not_started", sheetName: "Not_Started" },
+    discrepancies: { fileSuffix: "discrepancies", sheetName: "Discrepancies" }
+};
+
+function applyCellStyle(ws, address, style) {
+    if (!ws[address]) return;
+    ws[address].s = { ...(ws[address].s || {}), ...style };
+}
+
+function estimateColumnWidth(value) {
+    if (value === null || value === undefined) return 10;
+    return String(value).trim().length + 2;
+}
+
+function autoFitWorksheetColumns(ws, rows, keys) {
+    if (!Array.isArray(keys) || keys.length === 0) return;
+
+    ws["!cols"] = keys.map(key => {
+        let maxWidth = String(key).length + 4;
+        rows.forEach(row => {
+            maxWidth = Math.max(maxWidth, estimateColumnWidth(row?.[key]));
+        });
+
+        return { wch: Math.min(Math.max(maxWidth, 12), 28) };
+    });
+}
+
+function styleTableWorksheet(ws, options = {}) {
+    if (!ws["!ref"]) return;
+
+    const {
+        dataRows = [],
+        keys = [],
+        headerRowIndex = 0,
+        freezeCell = null,
+        totalLabel = "ALL",
+        totalColumnKey = keys[0]
+    } = options;
+
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    const headerStyle = {
+        font: { bold: true, color: { rgb: EXCEL_REPORT_THEME.textLight } },
+        fill: { fgColor: { rgb: EXCEL_REPORT_THEME.headerFill } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: {
+            top: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            bottom: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            left: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            right: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } }
+        }
+    };
+    const bodyBorder = {
+        border: {
+            top: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            bottom: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            left: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } },
+            right: { style: "thin", color: { rgb: EXCEL_REPORT_THEME.border } }
+        },
+        alignment: { vertical: "center", wrapText: true }
+    };
+    const altRowStyle = {
+        fill: { fgColor: { rgb: EXCEL_REPORT_THEME.altRowFill } }
+    };
+    const totalRowStyle = {
+        font: { bold: true, color: { rgb: EXCEL_REPORT_THEME.textDark } },
+        fill: { fgColor: { rgb: EXCEL_REPORT_THEME.summaryFill } }
+    };
+
+    for (let col = range.s.c; col <= range.e.c; col++) {
+        const address = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+        applyCellStyle(ws, address, headerStyle);
+    }
+
+    for (let rowIndex = headerRowIndex + 1; rowIndex <= range.e.r; rowIndex++) {
+        const dataIndex = rowIndex - headerRowIndex - 1;
+        const rowData = dataRows[dataIndex] || {};
+        const isAlternating = dataIndex % 2 === 1;
+        const isTotalRow = rowData?.[totalColumnKey] === totalLabel;
+
+        for (let col = range.s.c; col <= range.e.c; col++) {
+            const address = XLSX.utils.encode_cell({ r: rowIndex, c: col });
+            applyCellStyle(ws, address, bodyBorder);
+
+            if (isAlternating) {
+                applyCellStyle(ws, address, altRowStyle);
+            }
+
+            if (isTotalRow) {
+                applyCellStyle(ws, address, totalRowStyle);
+            }
+        }
+    }
+
+    ws["!autofilter"] = {
+        ref: XLSX.utils.encode_range({
+            s: { r: headerRowIndex, c: range.s.c },
+            e: { r: range.e.r, c: range.e.c }
+        })
+    };
+
+    if (freezeCell) {
+        ws["!freeze"] = { xSplit: freezeCell.c, ySplit: freezeCell.r, topLeftCell: XLSX.utils.encode_cell(freezeCell), activePane: "bottomRight", state: "frozen" };
+    }
+
+    autoFitWorksheetColumns(ws, dataRows, keys);
+}
+
+function normalizeReportText(value) {
+    return String(value ?? '').trim();
+}
+
+function hasDiscrepancy(value) {
+    const text = normalizeReportText(value).toLowerCase();
+    return text !== '' && text !== 'n/a' && text !== 'na' && text !== 'none';
+}
+
+function getOrderedFactoryValues(rows, preferredOrder = []) {
+    const seen = new Set();
+    const values = [];
+
+    preferredOrder.forEach(value => {
+        const exists = rows.some(row => normalizeReportText(row.Factory) === value);
+        if (exists && !seen.has(value)) {
+            seen.add(value);
+            values.push(value);
+        }
+    });
+
+    rows
+        .map(row => normalizeReportText(row.Factory) || 'UNKNOWN')
+        .sort((a, b) => a.localeCompare(b))
+        .forEach(value => {
+            if (!seen.has(value)) {
+                seen.add(value);
+                values.push(value);
+            }
+        });
+
+    return values;
+}
+
+function getContainerDestinationMap(rows) {
+    const containerFactoryCounts = {};
+
+    rows.forEach(row => {
+        const containerNum = normalizeReportText(row.ContainerNum);
+        const factory = normalizeReportText(row.Factory) || 'UNKNOWN';
+        if (!containerNum) return;
+
+        if (!containerFactoryCounts[containerNum]) {
+            containerFactoryCounts[containerNum] = {};
+        }
+
+        containerFactoryCounts[containerNum][factory] = (containerFactoryCounts[containerNum][factory] || 0) + 1;
+    });
+
+    const destinationMap = {};
+    Object.entries(containerFactoryCounts).forEach(([containerNum, counts]) => {
+        const destination = Object.entries(counts)
+            .sort((a, b) => {
+                if (b[1] !== a[1]) return b[1] - a[1];
+                return a[0].localeCompare(b[0]);
+            })[0]?.[0] || 'UNKNOWN';
+
+        destinationMap[containerNum] = destination;
+    });
+
+    return destinationMap;
+}
+
+function resolveTransportDestination(row, containerDestinationMap = {}) {
+    const shipmentDestination = normalizeReportText(row.shipment);
+    if (shipmentDestination) return shipmentDestination;
+    return '';
+}
+
+function buildExportDataRows(rows, baseColumns, options = {}) {
+    const {
+        extraColumns = [],
+        containerDestinationMap = {}
+    } = options;
+
+    return rows.map(row => {
+        const out = {};
+
+        baseColumns.forEach(column => {
+            out[column] = row[column] ?? "";
+        });
+
+        Object.keys(row).forEach(key => {
+            if (!EXPECTED_COLS.includes(key) && !EXPORT_EXCLUDED_COLS.has(key)) {
+                out[key] = row[key];
+            }
+        });
+
+        extraColumns.forEach(column => {
+            if (column === 'Status') {
+                out.Status = classifyStatus(row.REMARKS);
+            } else if (column === 'Destination') {
+                out.Destination = resolveTransportDestination(row, containerDestinationMap);
+            } else if (column === 'InternalTransportRoute') {
+                const destination = resolveTransportDestination(row, containerDestinationMap);
+                const factory = normalizeReportText(row.Factory) || 'UNKNOWN';
+                out.InternalTransportRoute = destination && destination !== factory ? `${destination} -> ${factory}` : '';
+            }
+        });
+
+        return out;
+    });
+}
+
+function buildStyledRowsSheet(rows, columns, options = {}) {
+    const ws = rows.length > 0
+        ? XLSX.utils.json_to_sheet(rows)
+        : XLSX.utils.aoa_to_sheet([columns]);
+    styleTableWorksheet(ws, {
+        dataRows: rows,
+        keys: columns,
+        headerRowIndex: 0,
+        freezeCell: { r: 1, c: 0 },
+        totalLabel: options.totalLabel || "__NO_TOTAL__",
+        totalColumnKey: options.totalColumnKey || columns[0]
+    });
+    return ws;
+}
+
+function buildStyledAnalyticsSheet(rows) {
+    const byContainer = {};
+
+    rows.forEach(r => {
+        const cont = String(r.ContainerNum ?? "NA");
+        if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
+        byContainer[cont].total++;
+        if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
+    });
+
+    const out = [];
+    let total = 0;
+    let finished = 0;
+
+    sortContainerLabels(Object.keys(byContainer)).forEach(cont => {
+        const v = byContainer[cont];
+        const remaining = v.total - v.finished;
+        const pct = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
+
+        out.push({
+            Container: cont,
+            TotalBoxes: v.total,
+            Finished: v.finished,
+            Remaining: remaining,
+            CompletionPercent: `${pct}%`
+        });
+
+        total += v.total;
+        finished += v.finished;
+    });
+
+    const pctAll = total === 0 ? 0 : Math.round((finished / total) * 100);
+    out.push({
+        Container: "ALL",
+        TotalBoxes: total,
+        Finished: finished,
+        Remaining: total - finished,
+        CompletionPercent: `${pctAll}%`
+    });
+
+    const ws = XLSX.utils.json_to_sheet(out);
+    styleTableWorksheet(ws, {
+        dataRows: out,
+        keys: ["Container", "TotalBoxes", "Finished", "Remaining", "CompletionPercent"],
+        headerRowIndex: 0,
+        freezeCell: { r: 1, c: 0 },
+        totalLabel: "ALL",
+        totalColumnKey: "Container"
+    });
+    return ws;
+}
+
+function buildStyledSummarySheet(rows, factoryOrder) {
+    const summaryData = [];
+    let allTotal = 0;
+    let allFinished = 0;
+
+    factoryOrder.forEach(fac => {
+        const filtered = rows.filter(r => (normalizeReportText(r.Factory) || 'UNKNOWN') === fac);
+        if (filtered.length === 0) return;
+
+        const total = filtered.length;
+        const finished = filtered.filter(r => isCompleted(r.REMARKS)).length;
+        const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
+
+        summaryData.push({
+            Factory: fac,
+            TotalBoxes: total,
+            Completed: finished,
+            Remaining: total - finished,
+            CompletionPercent: `${pct}%`
+        });
+
+        allTotal += total;
+        allFinished += finished;
+    });
+
+    const pctAll = allTotal === 0 ? 0 : Math.round((allFinished / allTotal) * 100);
+    summaryData.push({
+        Factory: "ALL",
+        TotalBoxes: allTotal,
+        Completed: allFinished,
+        Remaining: allTotal - allFinished,
+        CompletionPercent: `${pctAll}%`
+    });
+
+    const ws = XLSX.utils.json_to_sheet(summaryData, { origin: "A3" });
+    ws["A1"] = { t: "s", v: "Shipment Inspection Summary" };
+    ws["A2"] = { t: "s", v: `Generated: ${new Date().toLocaleString()}` };
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+
+    applyCellStyle(ws, "A1", {
+        font: { bold: true, sz: 16, color: { rgb: EXCEL_REPORT_THEME.textLight } },
+        fill: { fgColor: { rgb: EXCEL_REPORT_THEME.titleFill } },
+        alignment: { horizontal: "center", vertical: "center" }
+    });
+    applyCellStyle(ws, "A2", {
+        font: { italic: true, color: { rgb: EXCEL_REPORT_THEME.textDark } },
+        fill: { fgColor: { rgb: EXCEL_REPORT_THEME.accentFill } }
+    });
+
+    styleTableWorksheet(ws, {
+        dataRows: summaryData,
+        keys: ["Factory", "TotalBoxes", "Completed", "Remaining", "CompletionPercent"],
+        headerRowIndex: 2,
+        freezeCell: { r: 3, c: 0 },
+        totalLabel: "ALL",
+        totalColumnKey: "Factory"
+    });
+    return ws;
+}
+
 // ==================== EXPORT FUNCTION - FIXED ====================
-function exportWorkbookWithAnalytics() {
+function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
     if (!appState.activeKey || !appState.files[appState.activeKey]) {
         alert('No data to export');
         return;
     }
 
     const entry = appState.files[appState.activeKey];
+    const exportConfig = EXPORT_TYPE_OPTIONS[selectedExportType] || EXPORT_TYPE_OPTIONS.data_summary;
+    const exportColumns = EXPECTED_COLS.filter(col => !EXPORT_EXCLUDED_COLS.has(col));
+    const preferredFactoryOrder = ["F200", "F100", "AIO"];
+    const orderedFactories = getOrderedFactoryValues(entry.rows, preferredFactoryOrder);
+    const containerDestinationMap = getContainerDestinationMap(entry.rows);
 
     // Data Sheet
-    const dataRows = entry.rows.map(r => {
-        const out = {};
-        EXPECTED_COLS.forEach(c => out[c] = r[c] ?? "");
-        Object.keys(r).forEach(k => { if (!EXPECTED_COLS.includes(k)) out[k] = r[k]; });
-        return out;
+    const dataRows = buildExportDataRows(entry.rows, exportColumns, {
+        containerDestinationMap
     });
-    const wsData = XLSX.utils.json_to_sheet(dataRows);
+    const dataColumns = [...exportColumns];
+    const wsData = buildStyledRowsSheet(dataRows, dataColumns);
 
-    // Analytics Builder
-    function buildAnalytics(rows) {
-        const byContainer = {};
+    const wsAnalytics = buildStyledAnalyticsSheet(entry.rows);
+    const wsSummary = buildStyledSummarySheet(entry.rows, orderedFactories);
 
-        rows.forEach(r => {
-            const cont = String(r.ContainerNum ?? "NA");
-            if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
-            byContainer[cont].total++;
-            if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
-        });
-
-        const out = [];
-        let total = 0, finished = 0;
-
-        Object.keys(byContainer).sort().forEach(cont => {
-            const v = byContainer[cont];
-            const remaining = v.total - v.finished;
-            const pct = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
-
-            out.push({
-                Container: cont,
-                TotalBoxes: v.total,
-                Finished: v.finished,
-                Remaining: remaining,
-                CompletionPercent: pct + "%"
-            });
-
-            total += v.total;
-            finished += v.finished;
-        });
-
-        const pctAll = total === 0 ? 0 : Math.round((finished / total) * 100);
-        out.push({
-            Container: "ALL",
-            TotalBoxes: total,
-            Finished: finished,
-            Remaining: total - finished,
-            CompletionPercent: pctAll + "%"
-        });
-
-        return XLSX.utils.json_to_sheet(out);
-    }
-
-    const wsAnalytics = buildAnalytics(entry.rows);
-
-    const factoryOrder = ["F200", "F100", "AIO"];
-    const factories = [...new Set(entry.rows.map(r => r.Factory || "UNKNOWN"))];
-
-    // Summary Sheet
-    function buildSummarySheet() {
-        const summaryData = [];
-        let allTotal = 0, allFinished = 0;
-
-        factoryOrder.forEach(fac => {
-            const filtered = entry.rows.filter(r => r.Factory === fac);
-            if (filtered.length === 0) return;
-
-            const total = filtered.length;
-            const finished = filtered.filter(r => isCompleted(r.REMARKS)).length;
-            const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
-
-            summaryData.push({
-                Factory: fac,
-                TotalBoxes: total,
-                Completed: finished,
-                Remaining: total - finished,
-                CompletionPercent: pct + "%"
-            });
-
-            allTotal += total;
-            allFinished += finished;
-        });
-
-        const pctAll = allTotal === 0 ? 0 : Math.round((allFinished / allTotal) * 100);
-        summaryData.push({
-            Factory: "ALL",
-            TotalBoxes: allTotal,
-            Completed: allFinished,
-            Remaining: allTotal - allFinished,
-            CompletionPercent: pctAll + "%"
-        });
-
-        const ws = XLSX.utils.json_to_sheet(summaryData, { origin: "A2" });
-        ws["A1"] = { t: "s", v: "Shipment Inspection Summary" };
-        ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
-        ws["!cols"] = [
-            { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 }
-        ];
-
-        return ws;
-    }
-
-    const wsSummary = buildSummarySheet();
+    const remainingRows = entry.rows.filter(row => classifyStatus(row.REMARKS) !== 'Completed');
+    const inProgressRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'In Progress');
+    const completedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Completed');
+    const notStartedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Not Started');
+    const discrepancyRows = entry.rows.filter(row => hasDiscrepancy(row.Discrepancies));
+    const reportDefinitions = {
+        data_summary: {
+            sheetName: "Data",
+            rows: entry.rows,
+            extraColumns: []
+        },
+        remaining: {
+            sheetName: "Remaining",
+            rows: remainingRows,
+            extraColumns: ["Status"]
+        },
+        in_progress: {
+            sheetName: "In_Progress",
+            rows: inProgressRows,
+            extraColumns: ["Status"]
+        },
+        completed: {
+            sheetName: "Completed",
+            rows: completedRows,
+            extraColumns: ["Status"]
+        },
+        not_started: {
+            sheetName: "Not_Started",
+            rows: notStartedRows,
+            extraColumns: ["Status"]
+        },
+        discrepancies: {
+            sheetName: "Discrepancies",
+            rows: discrepancyRows,
+            extraColumns: ["Status"]
+        }
+    };
 
     // Build Workbook
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsData, "Data");
-    XLSX.utils.book_append_sheet(wb, wsAnalytics, "Analytics");
+    if (selectedExportType === 'data_summary') {
+        XLSX.utils.book_append_sheet(wb, wsData, "Data");
+        XLSX.utils.book_append_sheet(wb, wsAnalytics, "Analytics");
+        XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
-    factories.forEach(fac => {
-        const filtered = entry.rows.filter(r => r.Factory === fac);
-        const ws = buildAnalytics(filtered);
-        const safe = `Analytics_${fac}`.replace(/[^A-Za-z0-9_]/g, "");
-        XLSX.utils.book_append_sheet(wb, ws, safe);
-    });
-
-    XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+        orderedFactories.forEach(fac => {
+            const filtered = entry.rows.filter(r => (normalizeReportText(r.Factory) || 'UNKNOWN') === fac);
+            const ws = buildStyledAnalyticsSheet(filtered);
+            const safe = `Analytics_${fac}`.replace(/[^A-Za-z0-9_]/g, "");
+            XLSX.utils.book_append_sheet(wb, ws, safe);
+        });
+    } else {
+        const selectedReport = reportDefinitions[selectedExportType];
+        const reportRows = buildExportDataRows(selectedReport.rows, exportColumns, {
+            extraColumns: selectedReport.extraColumns,
+            containerDestinationMap
+        });
+        const reportColumns = [...exportColumns, ...selectedReport.extraColumns];
+        const ws = buildStyledRowsSheet(reportRows, reportColumns);
+        XLSX.utils.book_append_sheet(wb, ws, selectedReport.sheetName);
+    }
 
     // Save File
-    const outName = `${entry.name.replace(/\s+/g, '_')}_${nowTimestampForName()}.xlsx`;
+    const outName = `${entry.name.replace(/\s+/g, '_')}_${exportConfig.fileSuffix}_${nowTimestampForName()}.xlsx`;
     XLSX.writeFile(wb, outName);
 
     logAudit(
         'DATA_EXPORT',
-        `Exported ${entry.rows.length} records`,
+        `Exported ${entry.rows.length} records as ${selectedExportType}`,
         appState.activeTable
     );
+}
+
+function toggleExportMenu(forceOpen = null) {
+    if (!elements.exportMenu || !elements.exportBtn) return;
+
+    const shouldOpen = forceOpen === null ? elements.exportMenu.hidden : forceOpen;
+    elements.exportMenu.hidden = !shouldOpen;
+    elements.exportBtn.setAttribute('aria-expanded', String(shouldOpen));
 }
 
 async function applyBulkRemark(value) {
@@ -1234,12 +1784,14 @@ async function applyBulkRemark(value) {
     const fFactory = elements.factoryFilter.value || 'all';
     const fContainer = elements.containerFilter.value || 'all';
     const fStatus = elements.statusFilter.value || 'all';
+    const fBoxType = elements.boxTypeFilter.value || 'all';
     const q = (elements.searchInput.value || '').trim().toLowerCase();
 
     const filtered = allRows.filter(r => {
         if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
         if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
         if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
+        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
@@ -1288,22 +1840,6 @@ async function applyBulkRemark(value) {
     elements.bulkRemarkSelect.value = ''; // reset dropdown
 }
 
-function filterByItemCount(isMulti) {
-    if (!appState.activeKey) return;
-
-    const allRows = appState.files[appState.activeKey].rows || [];
-    const filtered = allRows.filter(r => {
-        const ic = Number(r.ItemCount ?? 0) || 0;
-        return isMulti ? ic > 1 : ic === 1;
-    });
-
-    renderTable(filtered);
-    renderSummary(filtered);
-    renderCharts(filtered);
-    updateMultipackNormalCounts(filtered);
-    elements.rowsCount.textContent = filtered.length;
-}
-
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
     elements.logoutBtn.addEventListener('click', () => {
@@ -1315,28 +1851,74 @@ function setupEventListeners() {
         await loadFromSupabase();
     });
 
-    // FIX: Export function
-    elements.exportBtn.addEventListener('click', () => {
-        exportWorkbookWithAnalytics();
+    elements.exportBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleExportMenu();
+    });
+
+    document.querySelectorAll('.export-option').forEach(option => {
+        option.addEventListener('mouseenter', () => {
+            if (elements.exportMenuHint) {
+                elements.exportMenuHint.textContent = option.dataset.description || 'Export selected report.';
+            }
+        });
+
+        option.addEventListener('focus', () => {
+            if (elements.exportMenuHint) {
+                elements.exportMenuHint.textContent = option.dataset.description || 'Export selected report.';
+            }
+        });
+
+        option.addEventListener('click', () => {
+            toggleExportMenu(false);
+            exportWorkbookWithAnalytics(option.dataset.exportType || 'data_summary');
+        });
+    });
+
+    if (elements.exportMenu) {
+        elements.exportMenu.addEventListener('mouseleave', () => {
+            if (elements.exportMenuHint) {
+                elements.exportMenuHint.textContent = 'Hover an option to see what the export will contain.';
+            }
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!elements.exportDropdown?.contains(event.target)) {
+            toggleExportMenu(false);
+        }
     });
 
     elements.shipmentFilter.addEventListener('change', renderFilteredAndLive);
     elements.factoryFilter.addEventListener('change', renderFilteredAndLive);
     elements.containerFilter.addEventListener('change', renderFilteredAndLive);
     elements.statusFilter.addEventListener('change', renderFilteredAndLive);
+    elements.boxTypeFilter.addEventListener('change', renderFilteredAndLive);
     elements.searchInput.addEventListener('input', renderFilteredAndLive);
+
+    if (elements.showBoxSummaryBtn) {
+        elements.showBoxSummaryBtn.addEventListener('click', () => {
+            appState.summaryMode = 'boxes';
+            updateSummaryView();
+        });
+    }
+
+    if (elements.showContainerSummaryBtn) {
+        elements.showContainerSummaryBtn.addEventListener('click', () => {
+            appState.summaryMode = 'containers';
+            updateSummaryView();
+        });
+    }
 
     elements.clearFiltersBtn.addEventListener('click', () => {
         elements.shipmentFilter.value = 'all';
         elements.factoryFilter.value = 'all';
         elements.containerFilter.value = 'all';
         elements.statusFilter.value = 'all';
+        elements.boxTypeFilter.value = 'all';
         elements.searchInput.value = '';
         renderFilteredAndLive();
     });
-
-    elements.multipackCard.addEventListener('click', () => filterByItemCount(true));
-    elements.normalPackCard.addEventListener('click', () => filterByItemCount(false));
 
     if (elements.applyAllBtn) {
         elements.applyAllBtn.addEventListener('click', async () => {
@@ -1354,10 +1936,9 @@ function setupEventListeners() {
     elements.viewAuditBtn.addEventListener('click', () => {
         elements.auditModal.classList.add('active');
 
-        // Populate user filter
         buildAuditUserFilter();
-
-        // Load logs initially
+        buildAuditActionFilter();
+        buildAuditTableFilter();
         loadAuditLogs();
     });
 
@@ -1369,7 +1950,10 @@ function setupEventListeners() {
         loadAuditLogs({
             dateFrom: elements.auditDateFrom.value,
             dateTo: elements.auditDateTo.value,
-            user: elements.auditUserFilter.value
+            user: elements.auditUserFilter.value,
+            action: elements.auditActionFilter.value,
+            table: elements.auditTableFilter.value,
+            search: elements.auditSearchInput.value
         });
     });
 
@@ -1471,6 +2055,8 @@ async function init() {
     elements.filesSelect.value = appState.activeTable;
 
     setupEventListeners();
+    buildAuditActionFilter();
+    buildAuditTableFilter();
     await loadFromSupabase();
 
     console.log('✅ Application initialized for:', appState.currentUser.email);
