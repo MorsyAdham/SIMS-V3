@@ -239,10 +239,10 @@ function getFilteredRows() {
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Finished' && status !== 'Completed') return false;
-            if (fStatus === 'In Progress' && status !== 'In Progress') return false;
+            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
+            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
             if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Completed') return false;
+            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
         }
 
         if (q) {
@@ -836,10 +836,24 @@ function isCompleted(remarks) {
     return /done/i.test(String(remarks));
 }
 
+function applyRemarkStyle(select, val) {
+    const v = String(val).toLowerCase();
+    if (v === 'done') {
+        select.style.backgroundColor = '#d1fae5';
+        select.style.color = '#065f46';
+    } else if (v === 'in progress') {
+        select.style.backgroundColor = '#fef3c7';
+        select.style.color = '#92400e';
+    } else {
+        select.style.backgroundColor = '';
+        select.style.color = '';
+    }
+}
+
 function classifyStatus(remarks) {
     const rem = String(remarks ?? '').trim().toLowerCase();
-    if (/done/i.test(rem)) return 'Completed';
-    if (/in\s*progress/i.test(rem)) return 'In Progress';
+    if (/done/i.test(rem)) return 'Military Inspection (Done)';
+    if (/in\s*progress/i.test(rem)) return 'Pre-Inspection';
     if (rem === '' || /^(n\/a|na|not started)$/i.test(rem)) return 'Not Started';
     return 'Not Started';
 }
@@ -957,10 +971,10 @@ function renderFilteredAndLive() {
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Finished' && status !== 'Completed') return false;
-            if (fStatus === 'In Progress' && status !== 'In Progress') return false;
+            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
+            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
             if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Completed') return false;
+            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
         }
 
         if (q) {
@@ -1008,18 +1022,21 @@ function renderTable(rows) {
                 const select = document.createElement('select');
                 select.disabled = !isAdmin;
 
-                const options = ['', 'Done', 'In Progress'];
+                const options = [
+                    { value: '', label: '--' },
+                    { value: 'Done', label: 'Military Inspection (Done)' },
+                    { value: 'In Progress', label: 'Pre-Inspection' }
+                ];
                 options.forEach(opt => {
                     const el = document.createElement('option');
-                    el.value = opt;
-                    el.textContent = opt;
-                    if ((r[c] ?? '').toLowerCase() === opt.toLowerCase()) el.selected = true;
+                    el.value = opt.value;
+                    el.textContent = opt.label;
+                    if ((r[c] ?? '').toLowerCase() === opt.value.toLowerCase()) el.selected = true;
                     select.appendChild(el);
                 });
 
                 const val = (r[c] ?? '').toLowerCase();
-                if (val === 'done') select.style.backgroundColor = '#d1fae5';
-                else if (val === 'in progress') select.style.backgroundColor = '#fef3c7';
+                applyRemarkStyle(select, val);
 
                 select.addEventListener('change', async () => {
                     const newVal = select.value;
@@ -1029,13 +1046,11 @@ function renderTable(rows) {
 
                     if (newVal.toLowerCase() === 'done') {
                         r.CompletionDate = r.CompletionDate || today;
-                        select.style.backgroundColor = '#d1fae5';
-                    } else if (newVal.toLowerCase() === 'in progress') {
-                        select.style.backgroundColor = '#fef3c7';
-                    } else {
+                    } else if (newVal.toLowerCase() !== 'in progress') {
                         r.CompletionDate = '';
-                        select.style.backgroundColor = '';
                     }
+
+                    applyRemarkStyle(select, newVal);
 
                     await updateRowInSupabase(r, 'REMARKS');
                     renderFilteredAndLive();
@@ -1088,8 +1103,8 @@ function renderSummary(rows) {
 
     rows.forEach(r => {
         const s = classifyStatus(r.REMARKS);
-        if (s === 'Completed') completed++;
-        else if (s === 'In Progress') inProgress++;
+        if (s === 'Military Inspection (Done)') completed++;
+        else if (s === 'Pre-Inspection') inProgress++;
         else notStarted++;
     });
 
@@ -1103,14 +1118,14 @@ function renderSummary(rows) {
             <div class="muted">All inspections</div>
         </div>
         <div class="card">
-            <strong>Completed</strong>
+            <strong>Military Inspection (Done)</strong>
             <div class="big" style="color: var(--success)">${completed}</div>
-            <div class="muted">${percent}% finished</div>
+            <div class="muted">${percent}% completed</div>
         </div>
         <div class="card">
-            <strong>In Progress</strong>
+            <strong>Pre-Inspection</strong>
             <div class="big" style="color: var(--warning)">${inProgress}</div>
-            <div class="muted">Under inspection</div>
+            <div class="muted">Currently being inspected</div>
         </div>
         <div class="card">
             <strong>Not Started</strong>
@@ -1147,8 +1162,8 @@ function getContainerMetrics(rows) {
         const status = classifyStatus(r.REMARKS);
         byContainer[containerNum].total++;
 
-        if (status === 'Completed') byContainer[containerNum].completed++;
-        else if (status === 'In Progress') byContainer[containerNum].inProgress++;
+        if (status === 'Military Inspection (Done)') byContainer[containerNum].completed++;
+        else if (status === 'Pre-Inspection') byContainer[containerNum].inProgress++;
         else byContainer[containerNum].notStarted++;
     });
 
@@ -1185,14 +1200,14 @@ function renderContainerSummary(rows) {
             <div class="muted">Unique containers in view</div>
         </div>
         <div class="card">
-            <strong>Completed Containers</strong>
+            <strong>Military Inspection (Done)</strong>
             <div class="big" style="color: var(--success)">${metrics.completed}</div>
-            <div class="muted">${metrics.percent}% fully finished</div>
+            <div class="muted">${metrics.percent}% fully complete</div>
         </div>
         <div class="card">
-            <strong>In Progress Containers</strong>
+            <strong>Pre-Inspection Containers</strong>
             <div class="big" style="color: var(--warning)">${metrics.inProgress}</div>
-            <div class="muted">Mixed completion status</div>
+            <div class="muted">Partially inspected</div>
         </div>
         <div class="card">
             <strong>Not Started Containers</strong>
@@ -1280,19 +1295,30 @@ function renderCharts(rows) {
 
     rows.forEach(r => {
         const cont = String(r.ContainerNum ?? 'NA');
-        if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
+        if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0, inProgress: 0 };
         byContainer[cont].total++;
-        if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
+        const s = classifyStatus(r.REMARKS);
+        if (s === 'Military Inspection (Done)') byContainer[cont].finished++;
+        else if (s === 'Pre-Inspection') byContainer[cont].inProgress++;
 
         const factory = String(r.Factory ?? 'Unknown').trim() || 'Unknown';
-        if (!byFactory[factory]) byFactory[factory] = { total: 0, finished: 0 };
+        if (!byFactory[factory]) byFactory[factory] = { total: 0, finished: 0, inProgress: 0 };
         byFactory[factory].total++;
-        if (isCompleted(r.REMARKS)) byFactory[factory].finished++;
+        if (s === 'Military Inspection (Done)') byFactory[factory].finished++;
+        else if (s === 'Pre-Inspection') byFactory[factory].inProgress++;
     });
 
     const labels = sortContainerLabels(Object.keys(byContainer));
     const finishedData = labels.map(l => byContainer[l].finished);
-    const remainingData = labels.map(l => byContainer[l].total - byContainer[l].finished);
+    const preInspData = labels.map(l => byContainer[l].inProgress);
+    const remainingData = labels.map(l => byContainer[l].total - byContainer[l].finished - byContainer[l].inProgress);
+
+    const barOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } },
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+    };
 
     const ctxBar = document.getElementById('boxesByContainerChart')?.getContext('2d');
     if (ctxBar) {
@@ -1302,22 +1328,19 @@ function renderCharts(rows) {
             data: {
                 labels,
                 datasets: [
-                    { label: 'Finished', data: finishedData, backgroundColor: '#10b981' },
-                    { label: 'Remaining', data: remainingData, backgroundColor: '#f59e0b' }
+                    { label: 'Military Inspection (Done)', data: finishedData, backgroundColor: '#10b981' },
+                    { label: 'Pre-Inspection', data: preInspData, backgroundColor: '#f59e0b' },
+                    { label: 'Remaining', data: remainingData, backgroundColor: '#cbd5e1' }
                 ]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } },
-                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-            }
+            options: barOptions
         });
     }
 
     const factoryLabels = Object.keys(byFactory).sort();
-    const factoryFinishedData = factoryLabels.map(label => byFactory[label].finished);
-    const factoryRemainingData = factoryLabels.map(label => byFactory[label].total - byFactory[label].finished);
+    const factoryFinishedData = factoryLabels.map(l => byFactory[l].finished);
+    const factoryPreInspData = factoryLabels.map(l => byFactory[l].inProgress);
+    const factoryRemainingData = factoryLabels.map(l => byFactory[l].total - byFactory[l].finished - byFactory[l].inProgress);
 
     const ctxFactory = document.getElementById('boxesByFactoryChart')?.getContext('2d');
     if (ctxFactory) {
@@ -1327,26 +1350,23 @@ function renderCharts(rows) {
             data: {
                 labels: factoryLabels,
                 datasets: [
-                    { label: 'Finished', data: factoryFinishedData, backgroundColor: '#10b981' },
-                    { label: 'Remaining', data: factoryRemainingData, backgroundColor: '#f59e0b' }
+                    { label: 'Military Inspection (Done)', data: factoryFinishedData, backgroundColor: '#10b981' },
+                    { label: 'Pre-Inspection', data: factoryPreInspData, backgroundColor: '#f59e0b' },
+                    { label: 'Remaining', data: factoryRemainingData, backgroundColor: '#cbd5e1' }
                 ]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } },
-                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-            }
+            options: barOptions
         });
     }
 
     const totals = labels.reduce((acc, l) => {
         acc.total += byContainer[l].total;
         acc.finished += byContainer[l].finished;
+        acc.inProgress += byContainer[l].inProgress;
         return acc;
-    }, { total: 0, finished: 0 });
+    }, { total: 0, finished: 0, inProgress: 0 });
 
-    const totalRemaining = Math.max(0, totals.total - totals.finished);
+    const totalRemaining = Math.max(0, totals.total - totals.finished - totals.inProgress);
 
     const ctxDonut = document.getElementById('progressChart')?.getContext('2d');
     if (ctxDonut) {
@@ -1354,10 +1374,10 @@ function renderCharts(rows) {
         appState.charts.progress = new Chart(ctxDonut, {
             type: 'doughnut',
             data: {
-                labels: ['Finished', 'Remaining'],
+                labels: ['Military Inspection (Done)', 'Pre-Inspection', 'Remaining'],
                 datasets: [{
-                    data: [totals.finished, totalRemaining],
-                    backgroundColor: ['#10b981', '#f59e0b']
+                    data: [totals.finished, totals.inProgress, totalRemaining],
+                    backgroundColor: ['#10b981', '#f59e0b', '#cbd5e1']
                 }]
             },
             options: {
@@ -1367,7 +1387,7 @@ function renderCharts(rows) {
                     legend: { position: 'bottom' },
                     datalabels: {
                         color: '#fff',
-                        font: { weight: 'bold', size: 16 },
+                        font: { weight: 'bold', size: 14 },
                         formatter: (value) => value === 0 ? null : value
                     }
                 },
@@ -1377,17 +1397,25 @@ function renderCharts(rows) {
         });
     }
 
-    const byDate = {};
+    // Daily chart: track both Pre-Inspection (by updated_at) and Military Inspection Done (by CompletionDate)
+    const byDateDone = {};
+    const byDatePreInsp = {};
+
     rows.forEach(r => {
-        if (isCompleted(r.REMARKS) && r.CompletionDate) {
+        const s = classifyStatus(r.REMARKS);
+        if (s === 'Military Inspection (Done)' && r.CompletionDate) {
             const date = String(r.CompletionDate).trim();
-            if (!byDate[date]) byDate[date] = 0;
-            byDate[date]++;
+            if (date) byDateDone[date] = (byDateDone[date] || 0) + 1;
+        }
+        if (s === 'Pre-Inspection' && r.updated_at) {
+            const date = String(r.updated_at).substring(0, 10);
+            if (date) byDatePreInsp[date] = (byDatePreInsp[date] || 0) + 1;
         }
     });
 
-    const dailyLabels = Object.keys(byDate).sort();
-    const dailyValues = dailyLabels.map(d => byDate[d]);
+    const allDates = [...new Set([...Object.keys(byDateDone), ...Object.keys(byDatePreInsp)])].sort();
+    const doneValues = allDates.map(d => byDateDone[d] || 0);
+    const preInspValues = allDates.map(d => byDatePreInsp[d] || 0);
 
     const ctxDaily = document.getElementById('dailyProgressChart')?.getContext('2d');
     if (ctxDaily) {
@@ -1395,24 +1423,154 @@ function renderCharts(rows) {
         appState.charts.daily = new Chart(ctxDaily, {
             type: 'line',
             data: {
-                labels: dailyLabels,
-                datasets: [{
-                    label: 'Completed per Day',
-                    data: dailyValues,
-                    borderColor: '#667eea',
-                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                    tension: 0.3,
-                    fill: true
-                }]
+                labels: allDates,
+                datasets: [
+                    {
+                        label: 'Military Inspection (Done)',
+                        data: doneValues,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 4
+                    },
+                    {
+                        label: 'Pre-Inspection',
+                        data: preInspValues,
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 4
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: { legend: { position: 'bottom' } },
-                scales: { y: { beginAtZero: true } }
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
             }
         });
     }
+}
+
+// ==================== CHART ACTIONS ====================
+window.copyChart = function (canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    canvas.toBlob(blob => {
+        if (!blob) return;
+        try {
+            navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            showToast('Chart copied to clipboard');
+        } catch {
+            showToast('Copy failed — try right-clicking the chart instead');
+        }
+    });
+};
+
+window.fullscreenChart = function (chartKey, title) {
+    const chart = appState.charts[chartKey];
+    if (!chart) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'chart-fullscreen-overlay';
+    overlay.innerHTML = `
+        <div class="chart-fullscreen-inner">
+            <div class="chart-fullscreen-title">${title || ''}</div>
+            <button class="chart-fullscreen-close" title="Close">✕</button>
+            <div class="chart-fullscreen-canvas-wrap">
+                <canvas id="fullscreenCanvas"></canvas>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const fsCanvas = document.getElementById('fullscreenCanvas');
+    new Chart(fsCanvas, {
+        type: chart.config.type,
+        data: JSON.parse(JSON.stringify(chart.config.data)),
+        options: { ...chart.config.options, responsive: true, maintainAspectRatio: false },
+        plugins: [ChartDataLabels]
+    });
+
+    overlay.querySelector('.chart-fullscreen-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+};
+
+window.copyOverview = function () {
+    const wrapId = appState.summaryMode === 'containers' ? 'containerSummaryWrap' : 'summaryWrap';
+    const wrap = document.getElementById(wrapId);
+    if (!wrap || !wrap.children.length) { showToast('No overview data to copy'); return; }
+
+    if (typeof html2canvas !== 'function') { showToast('Screenshot library not loaded yet, try again'); return; }
+
+    html2canvas(wrap, { scale: 2, useCORS: true, backgroundColor: getComputedStyle(document.body).getPropertyValue('--card').trim() || '#ffffff', logging: false })
+        .then(canvas => {
+            const dataUrl = canvas.toDataURL('image/png');
+
+            // Build preview modal
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;';
+
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.style.cssText = 'max-width:88vw;max-height:72vh;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.6);display:block;';
+
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:12px;align-items:center;';
+
+            const hint = document.createElement('span');
+            hint.style.cssText = 'color:#cbd5e1;font-size:13px;';
+            hint.textContent = 'Right-click → "Copy Image" to paste in reports';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.textContent = '⧉ Copy to Clipboard';
+            copyBtn.style.cssText = 'background:#667eea;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer;';
+            copyBtn.addEventListener('click', () => {
+                canvas.toBlob(blob => {
+                    if (!blob) return;
+                    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+                        .then(() => { hint.textContent = '✓ Copied to clipboard!'; copyBtn.textContent = '✓ Copied'; })
+                        .catch(() => { hint.textContent = 'Clipboard blocked — right-click the image instead'; });
+                });
+            });
+
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = '✕ Close';
+            closeBtn.style.cssText = 'background:none;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;';
+            closeBtn.addEventListener('click', () => overlay.remove());
+
+            btnRow.append(copyBtn, closeBtn, hint);
+            overlay.append(img, btnRow);
+            overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+
+            // Silently try clipboard API (works on HTTPS)
+            canvas.toBlob(blob => {
+                if (!blob || !navigator.clipboard?.write) return;
+                navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+                    .then(() => { hint.textContent = '✓ Already copied to clipboard — or right-click image to copy again'; })
+                    .catch(() => {});
+            });
+        })
+        .catch(() => showToast('Screenshot failed'));
+};
+
+function showToast(msg) {
+    const existing = document.getElementById('simsToast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'simsToast';
+    toast.textContent = msg;
+    Object.assign(toast.style, {
+        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+        background: '#1e293b', color: '#fff', padding: '10px 20px', borderRadius: '8px',
+        fontSize: '14px', zIndex: '9999', opacity: '1', transition: 'opacity 0.4s'
+    });
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 2200);
 }
 
 const EXCEL_REPORT_THEME = {
@@ -1438,8 +1596,8 @@ const EXPORT_TYPE_OPTIONS = {
 const EXPORT_TYPE_LABELS = {
     data_summary: 'Data Summary',
     remaining: 'Remaining',
-    in_progress: 'In Progress',
-    completed: 'Completed',
+    in_progress: 'Pre-Inspection',
+    completed: 'Military Inspection (Done)',
     not_started: 'Not Started',
     discrepancies: 'Discrepancies'
 };
@@ -1671,45 +1829,59 @@ function buildStyledAnalyticsSheet(rows) {
 
     rows.forEach(r => {
         const cont = String(r.ContainerNum ?? "NA");
-        if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0 };
+        if (!byContainer[cont]) byContainer[cont] = { total: 0, finished: 0, inProgress: 0 };
         byContainer[cont].total++;
-        if (isCompleted(r.REMARKS)) byContainer[cont].finished++;
+        const s = classifyStatus(r.REMARKS);
+        if (s === 'Military Inspection (Done)') byContainer[cont].finished++;
+        else if (s === 'Pre-Inspection') byContainer[cont].inProgress++;
     });
 
     const out = [];
     let total = 0;
     let finished = 0;
+    let inProgress = 0;
 
     sortContainerLabels(Object.keys(byContainer)).forEach(cont => {
         const v = byContainer[cont];
-        const remaining = v.total - v.finished;
-        const pct = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
+        const remaining = v.total - v.finished - v.inProgress;
+        const pctDone = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
+        const pctPreInsp = v.total === 0 ? 0 : Math.round((v.inProgress / v.total) * 100);
 
         out.push({
             Container: cont,
             TotalBoxes: v.total,
-            Finished: v.finished,
             Remaining: remaining,
-            CompletionPercent: `${pct}%`
+            'Remaining %': `${v.total === 0 ? 0 : Math.round((remaining / v.total) * 100)}%`,
+            'Pre-Inspection': v.inProgress,
+            'Pre-Insp %': `${pctPreInsp}%`,
+            'Military Inspection (Done)': v.finished,
+            'Done %': `${pctDone}%`
         });
 
         total += v.total;
         finished += v.finished;
+        inProgress += v.inProgress;
     });
 
     const pctAll = total === 0 ? 0 : Math.round((finished / total) * 100);
+    const pctPreAll = total === 0 ? 0 : Math.round((inProgress / total) * 100);
+    const totalRemaining = total - finished - inProgress;
     out.push({
         Container: "ALL",
         TotalBoxes: total,
-        Finished: finished,
-        Remaining: total - finished,
-        CompletionPercent: `${pctAll}%`
+        Remaining: totalRemaining,
+        'Remaining %': `${total === 0 ? 0 : Math.round((totalRemaining / total) * 100)}%`,
+        'Pre-Inspection': inProgress,
+        'Pre-Insp %': `${pctPreAll}%`,
+        'Military Inspection (Done)': finished,
+        'Done %': `${pctAll}%`
     });
 
+    const keys = ["Container", "TotalBoxes", "Remaining", "Remaining %", "Pre-Inspection", "Pre-Insp %", "Military Inspection (Done)", "Done %"];
     const ws = XLSX.utils.json_to_sheet(out);
     styleTableWorksheet(ws, {
         dataRows: out,
-        keys: ["Container", "TotalBoxes", "Finished", "Remaining", "CompletionPercent"],
+        keys,
         headerRowIndex: 0,
         freezeCell: { r: 1, c: 0 },
         totalLabel: "ALL",
@@ -1722,40 +1894,55 @@ function buildStyledSummarySheet(rows, factoryOrder) {
     const summaryData = [];
     let allTotal = 0;
     let allFinished = 0;
+    let allInProgress = 0;
 
     factoryOrder.forEach(fac => {
         const filtered = rows.filter(r => (normalizeReportText(r.Factory) || 'UNKNOWN') === fac);
         if (filtered.length === 0) return;
 
         const total = filtered.length;
-        const finished = filtered.filter(r => isCompleted(r.REMARKS)).length;
-        const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
+        const finished = filtered.filter(r => classifyStatus(r.REMARKS) === 'Military Inspection (Done)').length;
+        const inProgress = filtered.filter(r => classifyStatus(r.REMARKS) === 'Pre-Inspection').length;
+        const pctDone = total === 0 ? 0 : Math.round((finished / total) * 100);
+        const pctPreInsp = total === 0 ? 0 : Math.round((inProgress / total) * 100);
 
+        const remaining = total - finished - inProgress;
         summaryData.push({
             Factory: fac,
             TotalBoxes: total,
-            Completed: finished,
-            Remaining: total - finished,
-            CompletionPercent: `${pct}%`
+            Remaining: remaining,
+            'Remaining %': `${total === 0 ? 0 : Math.round((remaining / total) * 100)}%`,
+            'Pre-Inspection': inProgress,
+            'Pre-Insp %': `${pctPreInsp}%`,
+            'Military Inspection (Done)': finished,
+            'Done %': `${pctDone}%`
         });
 
         allTotal += total;
         allFinished += finished;
+        allInProgress += inProgress;
     });
 
     const pctAll = allTotal === 0 ? 0 : Math.round((allFinished / allTotal) * 100);
+    const pctPreAll = allTotal === 0 ? 0 : Math.round((allInProgress / allTotal) * 100);
+    const allRemaining = allTotal - allFinished - allInProgress;
     summaryData.push({
         Factory: "ALL",
         TotalBoxes: allTotal,
-        Completed: allFinished,
-        Remaining: allTotal - allFinished,
-        CompletionPercent: `${pctAll}%`
+        Remaining: allRemaining,
+        'Remaining %': `${allTotal === 0 ? 0 : Math.round((allRemaining / allTotal) * 100)}%`,
+        'Pre-Inspection': allInProgress,
+        'Pre-Insp %': `${pctPreAll}%`,
+        'Military Inspection (Done)': allFinished,
+        'Done %': `${pctAll}%`
     });
+
+    const keys = ["Factory", "TotalBoxes", "Remaining", "Remaining %", "Pre-Inspection", "Pre-Insp %", "Military Inspection (Done)", "Done %"];
 
     const ws = XLSX.utils.json_to_sheet(summaryData, { origin: "A3" });
     ws["A1"] = { t: "s", v: "Shipment Inspection Summary" };
     ws["A2"] = { t: "s", v: `Generated: ${new Date().toLocaleString()}` };
-    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: keys.length - 1 } }];
 
     applyCellStyle(ws, "A1", {
         font: { bold: true, sz: 16, color: { rgb: EXCEL_REPORT_THEME.textLight } },
@@ -1769,7 +1956,7 @@ function buildStyledSummarySheet(rows, factoryOrder) {
 
     styleTableWorksheet(ws, {
         dataRows: summaryData,
-        keys: ["Factory", "TotalBoxes", "Completed", "Remaining", "CompletionPercent"],
+        keys,
         headerRowIndex: 2,
         freezeCell: { r: 3, c: 0 },
         totalLabel: "ALL",
@@ -1802,9 +1989,9 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
     const wsAnalytics = buildStyledAnalyticsSheet(entry.rows);
     const wsSummary = buildStyledSummarySheet(entry.rows, orderedFactories);
 
-    const remainingRows = entry.rows.filter(row => classifyStatus(row.REMARKS) !== 'Completed');
-    const inProgressRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'In Progress');
-    const completedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Completed');
+    const remainingRows = entry.rows.filter(row => classifyStatus(row.REMARKS) !== 'Military Inspection (Done)');
+    const inProgressRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Pre-Inspection');
+    const completedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Military Inspection (Done)');
     const notStartedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Not Started');
     const discrepancyRows = entry.rows.filter(row => hasDiscrepancy(row.Discrepancies));
     const reportDefinitions = {
@@ -1912,10 +2099,10 @@ async function applyBulkRemark(value) {
 
         if (fStatus !== 'all') {
             const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Finished' && status !== 'Completed') return false;
-            if (fStatus === 'In Progress' && status !== 'In Progress') return false;
+            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
+            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
             if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Completed') return false;
+            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
         }
 
         if (q) {
@@ -2060,6 +2247,11 @@ function setupEventListeners() {
                 await applyBulkRemark(val);
             }
         });
+    }
+
+    const copyOverviewBtn = document.getElementById('copyOverviewBtn');
+    if (copyOverviewBtn) {
+        copyOverviewBtn.addEventListener('click', copyOverview);
     }
 
     elements.viewAuditBtn.addEventListener('click', openAuditModal);

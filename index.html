@@ -64,8 +64,8 @@
                     <div id="exportMenu" class="export-menu" hidden>
                         <button class="export-option" type="button" data-export-type="data_summary" data-description="Full report package with the styled data sheet, analytics, summary, and factory analytics." title="Full report package with the styled data sheet, analytics, summary, and factory analytics.">Data Summary</button>
                         <button class="export-option" type="button" data-export-type="remaining" data-description="All boxes that are not completed yet, including both in progress and not started rows." title="All boxes that are not completed yet, including both in progress and not started rows.">Remaining</button>
-                        <button class="export-option" type="button" data-export-type="in_progress" data-description="Only boxes currently marked in progress." title="Only boxes currently marked in progress.">In Progress</button>
-                        <button class="export-option" type="button" data-export-type="completed" data-description="Only boxes marked done or completed." title="Only boxes marked done or completed.">Completed</button>
+                        <button class="export-option" type="button" data-export-type="in_progress" data-description="Only boxes currently marked as Pre-Inspection (in progress)." title="Only boxes currently marked as Pre-Inspection (in progress).">Pre-Inspection</button>
+                        <button class="export-option" type="button" data-export-type="completed" data-description="Only boxes marked Military Inspection (Done)." title="Only boxes marked Military Inspection (Done).">Military Inspection (Done)</button>
                         <button class="export-option" type="button" data-export-type="not_started" data-description="Only boxes with no inspection progress yet." title="Only boxes with no inspection progress yet.">Not Started</button>
                         <button class="export-option" type="button" data-export-type="discrepancies" data-description="Only boxes that have discrepancy notes filled in." title="Only boxes that have discrepancy notes filled in.">Discrepancies</button>
                         <div id="exportMenuHint" class="export-menu-hint">Hover an option to see what the export will contain.</div>
@@ -102,8 +102,8 @@
                     Status
                     <select id="statusFilter" class="styled-select">
                         <option value="all">All</option>
-                        <option value="Finished">Finished</option>
-                        <option value="In Progress">In Progress</option>
+                        <option value="Military Inspection (Done)">Military Inspection (Done)</option>
+                        <option value="Pre-Inspection">Pre-Inspection</option>
                         <option value="Not Started">Not Started</option>
                         <option value="Remaining">Remaining</option>
                     </select>
@@ -133,9 +133,12 @@
 
         <!-- Summary Cards -->
         <section class="summary-section">
-            <div class="summary-toggle" role="tablist" aria-label="Summary Type">
-                <button id="showBoxSummaryBtn" class="summary-toggle-btn active" type="button">Boxes</button>
-                <button id="showContainerSummaryBtn" class="summary-toggle-btn" type="button">Containers</button>
+            <div class="overview-toolbar">
+                <div class="summary-toggle" role="tablist" aria-label="Summary Type">
+                    <button id="showBoxSummaryBtn" class="summary-toggle-btn active" type="button">Boxes</button>
+                    <button id="showContainerSummaryBtn" class="summary-toggle-btn" type="button">Containers</button>
+                </div>
+                <button id="copyOverviewBtn" class="overview-copy-btn" title="Copy overview to clipboard">⧉ Copy Overview</button>
             </div>
             <div class="summary" id="summaryWrap"></div>
             <div class="summary container-summary" id="containerSummaryWrap"></div>
@@ -169,8 +172,8 @@
                     Apply Remark:
                     <select id="applyRemark" class="styled-select">
                         <option value="">--Select--</option>
-                        <option value="Done">Done</option>
-                        <option value="In Progress">In Progress</option>
+                        <option value="Done">Military Inspection (Done)</option>
+                        <option value="In Progress">Pre-Inspection</option>
                         <option value="__CLEAR__">Clear</option>
                     </select>
                 </label>
@@ -197,28 +200,52 @@
         <!-- Charts Section -->
         <section class="charts-section">
             <div class="card chart-card">
-                <h3>Overall Progress</h3>
+                <div class="chart-header">
+                    <h3>Overall Progress</h3>
+                    <div class="chart-actions">
+                        <button class="chart-icon-btn" onclick="copyChart('progressChart')" title="Copy chart">⧉</button>
+                        <button class="chart-icon-btn" onclick="fullscreenChart('progress', 'Overall Progress')" title="Full screen">⛶</button>
+                    </div>
+                </div>
                 <div class="chart-container">
                     <canvas id="progressChart"></canvas>
                 </div>
             </div>
 
             <div class="card chart-card">
-                <h3>Boxes by Container</h3>
+                <div class="chart-header">
+                    <h3>Boxes by Container</h3>
+                    <div class="chart-actions">
+                        <button class="chart-icon-btn" onclick="copyChart('boxesByContainerChart')" title="Copy chart">⧉</button>
+                        <button class="chart-icon-btn" onclick="fullscreenChart('container', 'Boxes by Container')" title="Full screen">⛶</button>
+                    </div>
+                </div>
                 <div class="chart-container">
                     <canvas id="boxesByContainerChart"></canvas>
                 </div>
             </div>
 
             <div class="card chart-card">
-                <h3>Boxes by Factory</h3>
+                <div class="chart-header">
+                    <h3>Boxes by Factory</h3>
+                    <div class="chart-actions">
+                        <button class="chart-icon-btn" onclick="copyChart('boxesByFactoryChart')" title="Copy chart">⧉</button>
+                        <button class="chart-icon-btn" onclick="fullscreenChart('factory', 'Boxes by Factory')" title="Full screen">⛶</button>
+                    </div>
+                </div>
                 <div class="chart-container">
                     <canvas id="boxesByFactoryChart"></canvas>
                 </div>
             </div>
 
             <div class="card chart-card full-width">
-                <h3>Daily Completion Progress</h3>
+                <div class="chart-header">
+                    <h3>Daily Inspection Progress</h3>
+                    <div class="chart-actions">
+                        <button class="chart-icon-btn" onclick="copyChart('dailyProgressChart')" title="Copy chart">⧉</button>
+                        <button class="chart-icon-btn" onclick="fullscreenChart('daily', 'Daily Inspection Progress')" title="Full screen">⛶</button>
+                    </div>
+                </div>
                 <div class="chart-container">
                     <canvas id="dailyProgressChart"></canvas>
                 </div>
@@ -274,6 +301,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="assets/scripts/app.js"></script>
 </body>
 
