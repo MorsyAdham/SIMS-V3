@@ -19,6 +19,13 @@
             </div>
         </div>
 
+        <nav class="header-nav" aria-label="Page sections">
+            <a href="#filters-section" class="nav-link">Filters</a>
+            <a href="#overview-section" class="nav-link">Overview</a>
+            <a href="#data-section" class="nav-link">Data</a>
+            <a href="#analytics-section" class="nav-link">Analytics</a>
+        </nav>
+
         <div class="header-right">
             <button id="themeToggleBtn" class="btn btn-secondary theme-toggle" type="button" aria-pressed="false">
                 🌙 Dark
@@ -76,8 +83,12 @@
         </section>
 
         <!-- Filters Section -->
+        <div class="section-block" id="filters-section">
+        <div class="section-header">
+            <h3 class="section-heading">Filters</h3>
+            <span class="section-sub">Factory · Container · Status · Box Type</span>
+        </div>
         <section class="controls card">
-            <h3>Filters</h3>
             <div style="display: none;">
                 <select id="shipmentFilter" class="styled-select" aria-hidden="true" tabindex="-1">
                     <option value="all">All</option>
@@ -130,8 +141,14 @@
                 </div>
             </div>
         </section>
+        </div><!-- /filters-section -->
 
         <!-- Summary Cards -->
+        <div class="section-block" id="overview-section">
+        <div class="section-header">
+            <h3 class="section-heading">Shipment Overview</h3>
+            <span class="section-sub">Box-level progress across all containers and factories</span>
+        </div>
         <section class="summary-section">
             <div class="overview-toolbar">
                 <div class="summary-toggle" role="tablist" aria-label="Summary Type">
@@ -163,28 +180,38 @@
                 </div>
             </div>
         </section>
+        </div><!-- /overview-section -->
 
         <!-- Bulk Actions (Admin Only) -->
-        <section class="card bulk-actions" id="bulkActionsSection" style="display:none;">
-            <h3>Bulk Actions</h3>
-            <div class="bulk-controls">
-                <label>
-                    Apply Remark:
-                    <select id="applyRemark" class="styled-select">
-                        <option value="">--Select--</option>
-                        <option value="Done">Military Inspection (Done)</option>
-                        <option value="In Progress">Pre-Inspection</option>
-                        <option value="__CLEAR__">Clear</option>
-                    </select>
-                </label>
-                <button id="applyAllBtn" class="btn btn-primary">Apply to Filtered Rows</button>
+        <div id="bulkActionsSection" style="display:none; flex-direction:column; gap:10px;">
+            <div class="section-header">
+                <h3 class="section-heading">Bulk Actions</h3>
+                <span class="section-sub">Apply status changes to all filtered rows at once</span>
             </div>
-        </section>
+            <section class="card bulk-actions">
+                <div class="bulk-controls">
+                    <label>
+                        Apply Remark:
+                        <select id="applyRemark" class="styled-select">
+                            <option value="">--Select--</option>
+                            <option value="Done">Military Inspection (Done)</option>
+                            <option value="In Progress">Pre-Inspection</option>
+                            <option value="__CLEAR__">Clear</option>
+                        </select>
+                    </label>
+                    <button id="applyAllBtn" class="btn btn-primary">Apply to Filtered Rows</button>
+                </div>
+            </section>
+        </div>
 
         <!-- Data Table -->
+        <div class="section-block" id="data-section">
+        <div class="section-header">
+            <h3 class="section-heading">Inspection Data</h3>
+            <span class="section-sub">Box-level inspection records</span>
+        </div>
         <section id="table-wrap" class="card table-container">
             <div class="table-header">
-                <h3>Inspection Data</h3>
                 <div class="table-actions">
                     <button id="clearFiltersBtn" class="btn btn-sm">Clear Filters</button>
                 </div>
@@ -196,8 +223,14 @@
                 </table>
             </div>
         </section>
+        </div><!-- /data-section -->
 
         <!-- Charts Section -->
+        <div class="section-block" id="analytics-section">
+        <div class="section-header">
+            <h3 class="section-heading">Analytics</h3>
+            <span class="section-sub">Progress · Containers · Factories · Daily trends</span>
+        </div>
         <section class="charts-section">
             <div class="card chart-card">
                 <div class="chart-header">
@@ -251,7 +284,12 @@
                 </div>
             </div>
         </section>
+        </div><!-- /analytics-section -->
     </main>
+
+    <footer class="site-footer">
+        Shipment Inspection Management System &nbsp;©&nbsp; 2026 &nbsp;·&nbsp; Adham Morsy
+    </footer>
 
     <!-- Audit Log Modal -->
     <div id="auditModal" class="modal">

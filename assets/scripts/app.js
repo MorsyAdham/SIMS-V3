@@ -1316,7 +1316,19 @@ function renderCharts(rows) {
     const barOptions = {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } },
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
+                color: '#fff',
+                font: { weight: '600', size: 11 },
+                anchor: 'center',
+                align: 'center',
+                formatter: (value) => value > 0 ? value : null,
+                textShadowColor: 'rgba(0,0,0,0.3)',
+                textShadowBlur: 3,
+            }
+        },
         scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
     };
 
@@ -1386,9 +1398,17 @@ function renderCharts(rows) {
                 plugins: {
                     legend: { position: 'bottom' },
                     datalabels: {
+                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
                         color: '#fff',
-                        font: { weight: 'bold', size: 14 },
-                        formatter: (value) => value === 0 ? null : value
+                        font: { weight: '700', size: 13 },
+                        textAlign: 'center',
+                        formatter: (value, ctx) => {
+                            const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                            const pct = total > 0 ? Math.round(value / total * 100) : 0;
+                            return `${value}\n${pct}%`;
+                        },
+                        textShadowColor: 'rgba(0,0,0,0.35)',
+                        textShadowBlur: 4,
                     }
                 },
                 cutout: '60%'
@@ -1448,7 +1468,10 @@ function renderCharts(rows) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } },
+                plugins: {
+                    legend: { position: 'bottom' },
+                    datalabels: { display: false }
+                },
                 scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
             }
         });
