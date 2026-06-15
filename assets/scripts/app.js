@@ -1118,24 +1118,19 @@ function renderSummary(rows) {
             <div class="muted">All inspections</div>
         </div>
         <div class="card">
-            <strong>Military Inspection (Done)</strong>
-            <div class="big" style="color: var(--success)">${completed}</div>
-            <div class="muted">${percent}% completed</div>
-        </div>
-        <div class="card">
             <strong>Pre-Inspection</strong>
             <div class="big" style="color: var(--warning)">${inProgress}</div>
             <div class="muted">Currently being inspected</div>
         </div>
         <div class="card">
-            <strong>Not Started</strong>
-            <div class="big">${notStarted}</div>
-            <div class="muted">Pending</div>
-        </div>
-        <div class="card">
             <strong>Remaining</strong>
             <div class="big" style="color: var(--primary)">${remaining}</div>
             <div class="muted">To complete</div>
+        </div>
+        <div class="card">
+            <strong>Military Inspection (Done)</strong>
+            <div class="big" style="color: var(--success)">${completed}</div>
+            <div class="muted">${percent}% completed</div>
         </div>
     `;
 
@@ -1200,24 +1195,19 @@ function renderContainerSummary(rows) {
             <div class="muted">Unique containers in view</div>
         </div>
         <div class="card">
-            <strong>Military Inspection (Done)</strong>
-            <div class="big" style="color: var(--success)">${metrics.completed}</div>
-            <div class="muted">${metrics.percent}% fully complete</div>
-        </div>
-        <div class="card">
             <strong>Pre-Inspection Containers</strong>
             <div class="big" style="color: var(--warning)">${metrics.inProgress}</div>
             <div class="muted">Partially inspected</div>
         </div>
         <div class="card">
-            <strong>Not Started Containers</strong>
-            <div class="big">${metrics.notStarted}</div>
-            <div class="muted">All boxes still pending</div>
-        </div>
-        <div class="card">
             <strong>Remaining Containers</strong>
             <div class="big" style="color: var(--primary)">${metrics.remaining}</div>
             <div class="muted">Not fully complete</div>
+        </div>
+        <div class="card">
+            <strong>Military Inspection (Done)</strong>
+            <div class="big" style="color: var(--success)">${metrics.completed}</div>
+            <div class="muted">${metrics.percent}% fully complete</div>
         </div>
     `;
 }
@@ -1873,10 +1863,10 @@ function buildStyledAnalyticsSheet(rows) {
         out.push({
             Container: cont,
             TotalBoxes: v.total,
-            Remaining: remaining,
-            'Remaining %': `${v.total === 0 ? 0 : Math.round((remaining / v.total) * 100)}%`,
             'Pre-Inspection': v.inProgress,
             'Pre-Insp %': `${pctPreInsp}%`,
+            Remaining: remaining,
+            'Remaining %': `${v.total === 0 ? 0 : Math.round((remaining / v.total) * 100)}%`,
             'Military Inspection (Done)': v.finished,
             'Done %': `${pctDone}%`
         });
@@ -1892,15 +1882,15 @@ function buildStyledAnalyticsSheet(rows) {
     out.push({
         Container: "ALL",
         TotalBoxes: total,
-        Remaining: totalRemaining,
-        'Remaining %': `${total === 0 ? 0 : Math.round((totalRemaining / total) * 100)}%`,
         'Pre-Inspection': inProgress,
         'Pre-Insp %': `${pctPreAll}%`,
+        Remaining: totalRemaining,
+        'Remaining %': `${total === 0 ? 0 : Math.round((totalRemaining / total) * 100)}%`,
         'Military Inspection (Done)': finished,
         'Done %': `${pctAll}%`
     });
 
-    const keys = ["Container", "TotalBoxes", "Remaining", "Remaining %", "Pre-Inspection", "Pre-Insp %", "Military Inspection (Done)", "Done %"];
+    const keys = ["Container", "TotalBoxes", "Pre-Inspection", "Pre-Insp %", "Remaining", "Remaining %", "Military Inspection (Done)", "Done %"];
     const ws = XLSX.utils.json_to_sheet(out);
     styleTableWorksheet(ws, {
         dataRows: out,
@@ -1933,10 +1923,10 @@ function buildStyledSummarySheet(rows, factoryOrder) {
         summaryData.push({
             Factory: fac,
             TotalBoxes: total,
-            Remaining: remaining,
-            'Remaining %': `${total === 0 ? 0 : Math.round((remaining / total) * 100)}%`,
             'Pre-Inspection': inProgress,
             'Pre-Insp %': `${pctPreInsp}%`,
+            Remaining: remaining,
+            'Remaining %': `${total === 0 ? 0 : Math.round((remaining / total) * 100)}%`,
             'Military Inspection (Done)': finished,
             'Done %': `${pctDone}%`
         });
@@ -1952,15 +1942,15 @@ function buildStyledSummarySheet(rows, factoryOrder) {
     summaryData.push({
         Factory: "ALL",
         TotalBoxes: allTotal,
-        Remaining: allRemaining,
-        'Remaining %': `${allTotal === 0 ? 0 : Math.round((allRemaining / allTotal) * 100)}%`,
         'Pre-Inspection': allInProgress,
         'Pre-Insp %': `${pctPreAll}%`,
+        Remaining: allRemaining,
+        'Remaining %': `${allTotal === 0 ? 0 : Math.round((allRemaining / allTotal) * 100)}%`,
         'Military Inspection (Done)': allFinished,
         'Done %': `${pctAll}%`
     });
 
-    const keys = ["Factory", "TotalBoxes", "Remaining", "Remaining %", "Pre-Inspection", "Pre-Insp %", "Military Inspection (Done)", "Done %"];
+    const keys = ["Factory", "TotalBoxes", "Pre-Inspection", "Pre-Insp %", "Remaining", "Remaining %", "Military Inspection (Done)", "Done %"];
 
     const ws = XLSX.utils.json_to_sheet(summaryData, { origin: "A3" });
     ws["A1"] = { t: "s", v: "Shipment Inspection Summary" };
