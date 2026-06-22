@@ -1110,6 +1110,7 @@ function renderSummary(rows) {
 
     const remaining = inProgress + notStarted;
     const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+    const preInspPercent = total === 0 ? 0 : Math.round(((inProgress + completed) / total) * 100);
 
     elements.summaryWrap.innerHTML = `
         <div class="card">
@@ -1119,8 +1120,8 @@ function renderSummary(rows) {
         </div>
         <div class="card">
             <strong>Pre-Inspection</strong>
-            <div class="big" style="color: var(--warning)">${inProgress}</div>
-            <div class="muted">Currently being inspected</div>
+            <div class="big" style="color: var(--warning)">${inProgress + completed}</div>
+            <div class="muted">${preInspPercent}% gone through pre-inspection</div>
         </div>
         <div class="card">
             <strong>Remaining</strong>
@@ -1857,13 +1858,14 @@ function buildStyledAnalyticsSheet(rows) {
     sortContainerLabels(Object.keys(byContainer)).forEach(cont => {
         const v = byContainer[cont];
         const remaining = v.total - v.finished - v.inProgress;
+        const cumulativePreInsp = v.inProgress + v.finished;
         const pctDone = v.total === 0 ? 0 : Math.round((v.finished / v.total) * 100);
-        const pctPreInsp = v.total === 0 ? 0 : Math.round((v.inProgress / v.total) * 100);
+        const pctPreInsp = v.total === 0 ? 0 : Math.round((cumulativePreInsp / v.total) * 100);
 
         out.push({
             Container: cont,
             TotalBoxes: v.total,
-            'Pre-Inspection': v.inProgress,
+            'Pre-Inspection': cumulativePreInsp,
             'Pre-Insp %': `${pctPreInsp}%`,
             Remaining: remaining,
             'Remaining %': `${v.total === 0 ? 0 : Math.round((remaining / v.total) * 100)}%`,
@@ -1877,12 +1879,13 @@ function buildStyledAnalyticsSheet(rows) {
     });
 
     const pctAll = total === 0 ? 0 : Math.round((finished / total) * 100);
-    const pctPreAll = total === 0 ? 0 : Math.round((inProgress / total) * 100);
+    const cumulativePreInspAll = inProgress + finished;
+    const pctPreAll = total === 0 ? 0 : Math.round((cumulativePreInspAll / total) * 100);
     const totalRemaining = total - finished - inProgress;
     out.push({
         Container: "ALL",
         TotalBoxes: total,
-        'Pre-Inspection': inProgress,
+        'Pre-Inspection': cumulativePreInspAll,
         'Pre-Insp %': `${pctPreAll}%`,
         Remaining: totalRemaining,
         'Remaining %': `${total === 0 ? 0 : Math.round((totalRemaining / total) * 100)}%`,
@@ -1916,14 +1919,15 @@ function buildStyledSummarySheet(rows, factoryOrder) {
         const total = filtered.length;
         const finished = filtered.filter(r => classifyStatus(r.REMARKS) === 'Military Inspection (Done)').length;
         const inProgress = filtered.filter(r => classifyStatus(r.REMARKS) === 'Pre-Inspection').length;
+        const cumulativePreInsp = inProgress + finished;
         const pctDone = total === 0 ? 0 : Math.round((finished / total) * 100);
-        const pctPreInsp = total === 0 ? 0 : Math.round((inProgress / total) * 100);
+        const pctPreInsp = total === 0 ? 0 : Math.round((cumulativePreInsp / total) * 100);
 
         const remaining = total - finished - inProgress;
         summaryData.push({
             Factory: fac,
             TotalBoxes: total,
-            'Pre-Inspection': inProgress,
+            'Pre-Inspection': cumulativePreInsp,
             'Pre-Insp %': `${pctPreInsp}%`,
             Remaining: remaining,
             'Remaining %': `${total === 0 ? 0 : Math.round((remaining / total) * 100)}%`,
@@ -1937,12 +1941,13 @@ function buildStyledSummarySheet(rows, factoryOrder) {
     });
 
     const pctAll = allTotal === 0 ? 0 : Math.round((allFinished / allTotal) * 100);
-    const pctPreAll = allTotal === 0 ? 0 : Math.round((allInProgress / allTotal) * 100);
+    const allCumulativePreInsp = allInProgress + allFinished;
+    const pctPreAll = allTotal === 0 ? 0 : Math.round((allCumulativePreInsp / allTotal) * 100);
     const allRemaining = allTotal - allFinished - allInProgress;
     summaryData.push({
         Factory: "ALL",
         TotalBoxes: allTotal,
-        'Pre-Inspection': allInProgress,
+        'Pre-Inspection': allCumulativePreInsp,
         'Pre-Insp %': `${pctPreAll}%`,
         Remaining: allRemaining,
         'Remaining %': `${allTotal === 0 ? 0 : Math.round((allRemaining / allTotal) * 100)}%`,

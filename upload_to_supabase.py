@@ -4,8 +4,8 @@ from supabase import create_client, Client
 # ------------------ CONFIG ------------------
 SUPABASE_URL = "https://biqwfqkuhebxcfucangt.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcXdmcWt1aGVieGNmdWNhbmd0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjM3Mzk3NCwiZXhwIjoyMDgxOTQ5OTc0fQ.1dncNufSiz-Y7JnkU53FHbWqFtDLJfKEAOkVG-USXgM"  # 🔴 MUST be service_role key
-TABLE_NAME = "mar_2026_inspection_boxes"
-EXCEL_FILE = r"C:\Users\Victus 2\Logistics and Programming\1. Logistics\1. Shipment Files\2. shipment Reports\MAR_2026\MAR_2026_SHIPMENT_BOXES.xlsx"
+TABLE_NAME = "jun_2026_inspection_boxes"
+EXCEL_FILE = r"C:\Users\Victus 2\Logistics and Programming\1. Logistics\1. Shipment Files\2. shipment Reports\June_2026\JUN_2026_SHIPMENT_BOXES.xlsx"
 # --------------------------------------------
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
