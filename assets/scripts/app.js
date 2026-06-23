@@ -1416,7 +1416,11 @@ function renderCharts(rows) {
         const s = classifyStatus(r.REMARKS);
         if (s === 'Military Inspection (Done)' && r.CompletionDate) {
             const date = String(r.CompletionDate).trim();
-            if (date) byDateDone[date] = (byDateDone[date] || 0) + 1;
+            if (date) {
+                byDateDone[date] = (byDateDone[date] || 0) + 1;
+                // Done boxes also went through pre-inspection — count them cumulatively
+                byDatePreInsp[date] = (byDatePreInsp[date] || 0) + 1;
+            }
         }
         if (s === 'Pre-Inspection' && r.updated_at) {
             const date = String(r.updated_at).substring(0, 10);
