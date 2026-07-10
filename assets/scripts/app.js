@@ -1147,10 +1147,12 @@ function populateFilesSelectOptions() {
 function buildFactoryFilter() {
     if (!appState.activeKey) return;
     const set = new Set();
-    appState.files[appState.activeKey].rows.forEach(r => {
-        const v = String(r.Factory ?? '').trim();
-        if (v) set.add(v);
-    });
+    appState.files[appState.activeKey].rows
+        .filter(r => matchesMultiSet(filterState.shipment, r.shipment))
+        .forEach(r => {
+            const v = String(r.Factory ?? '').trim();
+            if (v) set.add(v);
+        });
     filterOptions.factory = [...set].sort().map(f => ({ value: f, label: f }));
     renderMultiSelectMenu('factory');
 }
@@ -1158,10 +1160,12 @@ function buildFactoryFilter() {
 function buildContainerFilter() {
     if (!appState.activeKey) return;
     const set = new Set();
-    appState.files[appState.activeKey].rows.forEach(r => {
-        const v = String(r.ContainerNum ?? '').trim();
-        if (v) set.add(v);
-    });
+    appState.files[appState.activeKey].rows
+        .filter(r => matchesMultiSet(filterState.shipment, r.shipment))
+        .forEach(r => {
+            const v = String(r.ContainerNum ?? '').trim();
+            if (v) set.add(v);
+        });
     const containerArray = Array.from(set).map(c => {
         const n = parseInt(c, 10);
         return { original: c, number: isNaN(n) ? Infinity : n };
