@@ -30,12 +30,13 @@ const appState = {
     files: {},
     activeKey: null,
     charts: { progress: null, container: null, factory: null, daily: null },
-    activeTable: 'inspection_boxes',
-    summaryMode: 'boxes'
+    summaryMode: 'boxes',
+    pendingShipmentUpload: null
 };
 
 // ==================== MULTI-SELECT FILTERS ====================
 const filterState = {
+    shipment: new Set(['all']),
     factory: new Set(['all']),
     container: new Set(['all']),
     status: new Set(['all']),
@@ -43,6 +44,7 @@ const filterState = {
 };
 
 const filterOptions = {
+    shipment: [],
     factory: [],
     container: [],
     status: [
@@ -188,11 +190,10 @@ function matchesBoxTypeMultiSet(selected, row) {
 }
 
 function applyActiveFilters(rows) {
-    const fShipment = elements.shipmentFilter.value || 'all';
     const q = (elements.searchInput.value || '').trim().toLowerCase();
 
     return rows.filter(r => {
-        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
+        if (!matchesMultiSet(filterState.shipment, r.shipment)) return false;
         if (!matchesMultiSet(filterState.factory, r.Factory)) return false;
         if (!matchesMultiSet(filterState.container, r.ContainerNum)) return false;
         if (!matchesBoxTypeMultiSet(filterState.boxType, r)) return false;
@@ -207,13 +208,9 @@ function applyActiveFilters(rows) {
     });
 }
 
-// Table options
-const tableOptions = [
-    { key: 'inspection_boxes', name: 'NOV 2025' },
-    { key: 'jan_2026_inspection_boxes', name: 'JAN 2026' },
-    { key: 'mar_2026_inspection_boxes', name: 'MAR 2026' },
-    { key: 'jun_2026_inspection_boxes', name: 'JUN 2026' }
-];
+// Single consolidated Supabase table backing every shipment
+const MAIN_TABLE = 'inspection_boxes';
+const SELECTED_SHIPMENT_KEY = 'sims_selected_shipment';
 
 // ==================== DOM ELEMENTS ====================
 const elements = {
@@ -224,14 +221,31 @@ const elements = {
     logoutBtn: document.getElementById('logoutBtn'),
     filesSelect: document.getElementById('filesSelect'),
     fileInput: document.getElementById('fileInput'),
-    uploadLabel: document.getElementById('uploadLabel'),
     refreshBtn: document.getElementById('refreshBtn'),
+    uploadBtn: document.getElementById('uploadBtn'),
+    uploadDropdown: document.getElementById('uploadDropdown'),
+    uploadMenu: document.getElementById('uploadMenu'),
+    uploadMenuHint: document.getElementById('uploadMenuHint'),
+    viewLocalFileOption: document.getElementById('viewLocalFileOption'),
+    uploadNewShipmentOption: document.getElementById('uploadNewShipmentOption'),
+    uploadShipmentModal: document.getElementById('uploadShipmentModal'),
+    closeUploadShipmentModal: document.getElementById('closeUploadShipmentModal'),
+    uploadShipmentName: document.getElementById('uploadShipmentName'),
+    downloadShipmentTemplateBtn: document.getElementById('downloadShipmentTemplateBtn'),
+    uploadShipmentFileInput: document.getElementById('uploadShipmentFileInput'),
+    uploadShipmentStepForm: document.getElementById('uploadShipmentStepForm'),
+    uploadShipmentStepReview: document.getElementById('uploadShipmentStepReview'),
+    uploadShipmentSummary: document.getElementById('uploadShipmentSummary'),
+    uploadShipmentDetails: document.getElementById('uploadShipmentDetails'),
+    uploadShipmentBackBtn: document.getElementById('uploadShipmentBackBtn'),
+    uploadShipmentConfirmBtn: document.getElementById('uploadShipmentConfirmBtn'),
+    uploadShipmentStepDone: document.getElementById('uploadShipmentStepDone'),
+    uploadShipmentDoneMessage: document.getElementById('uploadShipmentDoneMessage'),
     exportBtn: document.getElementById('exportBtn'),
     exportDropdown: document.getElementById('exportDropdown'),
     exportMenu: document.getElementById('exportMenu'),
     exportMenuHint: document.getElementById('exportMenuHint'),
     viewAuditBtn: document.getElementById('viewAuditBtn'),
-    shipmentFilter: document.getElementById('shipmentFilter'),
     factoryFilterBtn: document.getElementById('factoryFilterBtn'),
     factoryFilterMenu: document.getElementById('factoryFilterMenu'),
     containerFilterBtn: document.getElementById('containerFilterBtn'),
@@ -327,11 +341,6 @@ function getStoredTheme() {
     return storedTheme === 'dark' ? 'dark' : 'light';
 }
 
-function getStoredActiveTable() {
-    const storedTable = localStorage.getItem('sims_active_table');
-    return tableOptions.some(option => option.key === storedTable) ? storedTable : 'inspection_boxes';
-}
-
 function updateThemeToggleLabel(theme) {
     if (!elements.themeToggleBtn) return;
     const isDark = theme === 'dark';
@@ -419,8 +428,8 @@ function updateUIForUser() {
         elements.bulkActionsSection.style.display = isAdmin ? 'block' : 'none';
     }
 
-    if (elements.uploadLabel) {
-        elements.uploadLabel.style.display = isAdmin ? 'flex' : 'none';
+    if (elements.uploadDropdown) {
+        elements.uploadDropdown.style.display = isAdmin ? 'inline-block' : 'none';
     }
 
     if (elements.fileInput) elements.fileInput.disabled = !isAdmin;
@@ -825,15 +834,30 @@ function buildAuditActionFilter() {
         .join('');
 }
 
-function buildAuditTableFilter() {
+async function buildAuditTableFilter() {
     if (!elements.auditTableFilter) return;
 
-    const tableNames = [
-        ...new Set(tableOptions.map(option => option.key))
-    ].sort((a, b) => a.localeCompare(b));
+    const tableNames = new Set([MAIN_TABLE]);
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('audit_log')
+            .select('table_name')
+            .order('timestamp', { ascending: false })
+            .limit(1000);
+
+        if (error) throw error;
+        (data || []).forEach(row => {
+            if (row.table_name) tableNames.add(row.table_name);
+        });
+    } catch (error) {
+        console.error('Failed to load audit table names:', error);
+    }
+
+    const sortedNames = [...tableNames].sort((a, b) => a.localeCompare(b));
 
     elements.auditTableFilter.innerHTML = ['<option value="all">All Tables</option>']
-        .concat(tableNames.map(tableName => `<option value="${tableName}">${tableName}</option>`))
+        .concat(sortedNames.map(tableName => `<option value="${tableName}">${tableName}</option>`))
         .concat('<option value="__none__">No Table</option>')
         .join('');
 }
@@ -872,7 +896,7 @@ function displayAuditLogs(logs) {
 // ==================== DATA LOADING ====================
 async function loadFromSupabase() {
     try {
-        const rows = await loadAllFromSupabase(appState.activeTable);
+        const rows = await loadAllFromSupabase(MAIN_TABLE);
 
         const normalizedRows = rows.map(row => {
             const out = {};
@@ -882,15 +906,16 @@ async function loadFromSupabase() {
             return out;
         });
 
-        const key = appState.activeTable;
+        const key = MAIN_TABLE;
         appState.files[key] = {
-            name: tableOptions.find(t => t.key === key)?.name || key,
+            name: 'Live Shipment Data',
             workbook: null,
             sheetName: key,
             rows: normalizedRows,
             columns: EXPECTED_COLS.slice()
         };
 
+        buildShipmentFilter();
         setActiveFile(key);
 
         console.log(`✅ Loaded ${normalizedRows.length} rows from table: ${key}`);
@@ -953,7 +978,7 @@ async function updateRowInSupabase(row, fieldChanged) {
         };
 
         const { error } = await supabaseClient
-            .from(appState.activeTable)
+            .from(MAIN_TABLE)
             .update(payload)
             .eq('id', row.id);
 
@@ -964,10 +989,10 @@ async function updateRowInSupabase(row, fieldChanged) {
             userEmail: appState.currentUser?.email || 'UNKNOWN',
             action: 'DATA_UPDATE',
             details: `Updated ${fieldChanged || 'field'} for Box ${row.BoxNum} in Container ${row.ContainerNum}`,
-            tableName: appState.activeTable
+            tableName: MAIN_TABLE
         });
 
-        console.log(`✅ Updated row id=${row.id} in ${appState.activeTable}`);
+        console.log(`✅ Updated row id=${row.id} in ${MAIN_TABLE}`);
         return true;
 
     } catch (error) {
@@ -1047,27 +1072,76 @@ function setActiveFile(key) {
     if (!appState.files[key]) return;
 
     appState.activeKey = key;
-    appState.activeTable = key;
-    localStorage.setItem('sims_active_table', key);
-    elements.filesSelect.value = key;
 
-    buildShipmentFilter();
+    // Previewing a locally uploaded file shows that file's own rows in full;
+    // a shipment picked earlier from the live dataset must not carry over
+    // and silently filter them out.
+    if (key !== MAIN_TABLE) {
+        filterState.shipment = new Set(['all']);
+    }
+
     buildFactoryFilter();
     buildContainerFilter();
+    populateFilesSelectOptions();
     renderFilteredAndLive();
 }
 
+// Builds the list of shipments from the live dataset only (never from a
+// locally previewed file), so the dropdown always offers every real
+// shipment regardless of what's currently being viewed. Defaults to the
+// most recently added shipment (highest row id = most recently inserted,
+// whether from the original migration or a later "Upload New Shipment").
 function buildShipmentFilter() {
-    if (!appState.activeKey) return;
-    const set = new Set();
-    appState.files[appState.activeKey].rows.forEach(r => {
+    const liveRows = appState.files[MAIN_TABLE]?.rows || [];
+    const latestIdByShipment = new Map();
+
+    liveRows.forEach(r => {
         const v = String(r.shipment ?? '').trim();
-        if (v) set.add(v);
+        if (!v) return;
+        const id = Number(r.id) || 0;
+        if (!latestIdByShipment.has(v) || id > latestIdByShipment.get(v)) {
+            latestIdByShipment.set(v, id);
+        }
     });
-    const opts = ['<option value="all">All</option>']
-        .concat([...set].sort().map(s => `<option value="${s}">${s}</option>`))
+
+    const shipments = [...latestIdByShipment.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([value]) => value);
+
+    filterOptions.shipment = shipments.map(s => ({ value: s, label: s }));
+
+    if (shipments.length > 0) {
+        const stored = localStorage.getItem(SELECTED_SHIPMENT_KEY);
+        const defaultShipment = (stored && shipments.includes(stored)) ? stored : shipments[0];
+        filterState.shipment = new Set([defaultShipment]);
+    }
+
+    populateFilesSelectOptions();
+}
+
+// The "Shipment" dropdown (in the Active File slot) lists every real
+// shipment from the live dataset, plus any locally uploaded preview files
+// appended after them.
+function populateFilesSelectOptions() {
+    if (!elements.filesSelect) return;
+
+    const shipmentOptions = filterOptions.shipment
+        .map(o => `<option value="${escapeHtmlAttr(o.value)}">${escapeHtmlAttr(o.label)}</option>`)
         .join('');
-    elements.shipmentFilter.innerHTML = opts;
+
+    const localFileOptions = Object.keys(appState.files)
+        .filter(key => key !== MAIN_TABLE)
+        .map(key => `<option value="${escapeHtmlAttr(key)}">${escapeHtmlAttr(appState.files[key].name)}</option>`)
+        .join('');
+
+    elements.filesSelect.innerHTML = shipmentOptions + localFileOptions;
+
+    if (appState.activeKey !== MAIN_TABLE && appState.files[appState.activeKey]) {
+        elements.filesSelect.value = appState.activeKey;
+    } else {
+        const current = [...filterState.shipment].find(v => v !== 'all');
+        if (current) elements.filesSelect.value = current;
+    }
 }
 
 function buildFactoryFilter() {
@@ -2202,7 +2276,7 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
         userEmail: appState.currentUser?.email || 'UNKNOWN',
         action: 'DATA_EXPORT',
         details: `Exported "${exportLabel}" report with ${entry.rows.length} records (${outName})`,
-        tableName: appState.activeTable
+        tableName: appState.activeKey
     });
 }
 
@@ -2212,6 +2286,248 @@ function toggleExportMenu(forceOpen = null) {
     const shouldOpen = forceOpen === null ? elements.exportMenu.hidden : forceOpen;
     elements.exportMenu.hidden = !shouldOpen;
     elements.exportBtn.setAttribute('aria-expanded', String(shouldOpen));
+}
+
+function toggleUploadMenu(forceOpen = null) {
+    if (!elements.uploadMenu || !elements.uploadBtn) return;
+
+    const shouldOpen = forceOpen === null ? elements.uploadMenu.hidden : forceOpen;
+    elements.uploadMenu.hidden = !shouldOpen;
+    elements.uploadBtn.setAttribute('aria-expanded', String(shouldOpen));
+}
+
+// ==================== UPLOAD NEW SHIPMENT ====================
+const SHIPMENT_TEMPLATE_COLUMNS = ['NO', 'ContainerNum', 'BoxNum', 'Container', 'BoxName', 'ItemCount', 'Kits', 'Factory'];
+const SHIPMENT_MANIFEST_COMPARE_FIELDS = ['NO', 'Container', 'BoxName', 'ItemCount', 'Kits', 'Factory'];
+const SHIPMENT_NUMERIC_FIELDS = new Set(['NO', 'ItemCount']);
+
+function shipmentBoxKey(containerNum, boxNum) {
+    return `${String(containerNum ?? '').trim()}|${String(boxNum ?? '').trim()}`;
+}
+
+function downloadShipmentTemplate() {
+    const ws = buildStyledRowsSheet([], SHIPMENT_TEMPLATE_COLUMNS);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'SIMS_Shipment_Upload_Template.xlsx');
+}
+
+function openUploadShipmentModal() {
+    if (!elements.uploadShipmentModal) return;
+    resetUploadShipmentModal();
+    elements.uploadShipmentModal.classList.add('active');
+}
+
+function closeUploadShipmentModalFn() {
+    if (!elements.uploadShipmentModal) return;
+    elements.uploadShipmentModal.classList.remove('active');
+}
+
+function resetUploadShipmentModal() {
+    if (elements.uploadShipmentName) elements.uploadShipmentName.value = '';
+    if (elements.uploadShipmentFileInput) elements.uploadShipmentFileInput.value = '';
+    if (elements.uploadShipmentStepForm) elements.uploadShipmentStepForm.hidden = false;
+    if (elements.uploadShipmentStepReview) elements.uploadShipmentStepReview.hidden = true;
+    if (elements.uploadShipmentStepDone) elements.uploadShipmentStepDone.hidden = true;
+    appState.pendingShipmentUpload = null;
+}
+
+async function handleUploadShipmentFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const shipmentName = (elements.uploadShipmentName.value || '').trim();
+    if (!shipmentName) {
+        alert('Please enter a shipment name first.');
+        elements.uploadShipmentFileInput.value = '';
+        return;
+    }
+
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+        const uploadedRows = rawRows
+            .map(row => {
+                const out = { shipment: shipmentName };
+                SHIPMENT_TEMPLATE_COLUMNS.forEach(col => {
+                    const raw = row[col] ?? '';
+                    out[col] = SHIPMENT_NUMERIC_FIELDS.has(col) ? (Number(raw) || 0) : String(raw).trim();
+                });
+                return out;
+            })
+            .filter(row => String(row.ContainerNum).trim() && String(row.BoxNum).trim());
+
+        const { data: existingRows, error } = await supabaseClient
+            .from(MAIN_TABLE)
+            .select('*')
+            .eq('shipment', shipmentName);
+
+        if (error) throw error;
+
+        const existingByKey = new Map();
+        (existingRows || []).forEach(r => {
+            existingByKey.set(shipmentBoxKey(r.ContainerNum, r.BoxNum), r);
+        });
+
+        const newRows = [];
+        const changedRows = [];
+        let unchangedCount = 0;
+
+        uploadedRows.forEach(row => {
+            const key = shipmentBoxKey(row.ContainerNum, row.BoxNum);
+            const existing = existingByKey.get(key);
+
+            if (!existing) {
+                newRows.push(row);
+                return;
+            }
+
+            const changes = SHIPMENT_MANIFEST_COMPARE_FIELDS.filter(field => {
+                return String(row[field] ?? '').trim() !== String(existing[field] ?? '').trim();
+            });
+
+            if (changes.length === 0) {
+                unchangedCount++;
+            } else {
+                changedRows.push({ row, existing, changes });
+            }
+        });
+
+        appState.pendingShipmentUpload = { shipmentName, allRows: uploadedRows, newRows, changedRows, unchangedCount };
+        renderUploadShipmentReview();
+    } catch (err) {
+        console.error('Failed to parse shipment file:', err);
+        alert('❌ Failed to read the file. Make sure it matches the template.');
+    } finally {
+        elements.uploadShipmentFileInput.value = '';
+    }
+}
+
+function renderUploadShipmentReview() {
+    const pending = appState.pendingShipmentUpload;
+    if (!pending) return;
+
+    elements.uploadShipmentStepForm.hidden = true;
+    elements.uploadShipmentStepReview.hidden = false;
+
+    const totalBoxes = pending.allRows.length;
+    const totalContainers = new Set(pending.allRows.map(r => String(r.ContainerNum ?? '').trim())).size;
+
+    const factoryCounts = new Map();
+    pending.allRows.forEach(r => {
+        const factory = String(r.Factory ?? '').trim() || 'UNKNOWN';
+        factoryCounts.set(factory, (factoryCounts.get(factory) || 0) + 1);
+    });
+    const factoryBreakdownHtml = [...factoryCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([factory, count]) => `<li>${escapeHtmlAttr(factory)}: ${count}</li>`)
+        .join('');
+
+    elements.uploadShipmentSummary.innerHTML = `
+        <p><strong>${escapeHtmlAttr(pending.shipmentName)}</strong></p>
+        <p>${totalBoxes} box(es) total across ${totalContainers} container(s) in this file.</p>
+        <ul class="upload-shipment-factory-breakdown">${factoryBreakdownHtml}</ul>
+        <p>${pending.newRows.length} new box(es), ${pending.changedRows.length} changed box(es), ${pending.unchangedCount} unchanged box(es).</p>
+        <p class="muted">Inspection status (Remarks, Completion Date, Discrepancies) is never modified by an upload.</p>
+    `;
+
+    const newRowsHtml = pending.newRows.length
+        ? `<h4>New Boxes (${pending.newRows.length})</h4><ul>${pending.newRows.map(r =>
+            `<li>Container ${escapeHtmlAttr(r.ContainerNum)} / Box ${escapeHtmlAttr(r.BoxNum)} — ${escapeHtmlAttr(r.BoxName)}</li>`
+        ).join('')}</ul>`
+        : '';
+
+    const changedRowsHtml = pending.changedRows.length
+        ? `<h4>Changed Boxes (${pending.changedRows.length})</h4><ul>${pending.changedRows.map(c =>
+            `<li>Container ${escapeHtmlAttr(c.existing.ContainerNum)} / Box ${escapeHtmlAttr(c.existing.BoxNum)}: ${c.changes.map(field =>
+                `${field} "${escapeHtmlAttr(c.existing[field])}" → "${escapeHtmlAttr(c.row[field])}"`
+            ).join(', ')}</li>`
+        ).join('')}</ul>`
+        : '';
+
+    elements.uploadShipmentDetails.innerHTML = (newRowsHtml + changedRowsHtml)
+        || '<p class="muted">No new or changed boxes — nothing to save.</p>';
+}
+
+async function confirmUploadShipment() {
+    const pending = appState.pendingShipmentUpload;
+    if (!pending) return;
+
+    if (pending.newRows.length === 0 && pending.changedRows.length === 0) {
+        closeUploadShipmentModalFn();
+        return;
+    }
+
+    elements.uploadShipmentConfirmBtn.disabled = true;
+
+    try {
+        if (pending.newRows.length > 0) {
+            const insertPayload = pending.newRows.map(row => ({
+                shipment: row.shipment,
+                NO: row.NO,
+                ContainerNum: row.ContainerNum,
+                BoxNum: row.BoxNum,
+                Container: row.Container,
+                BoxName: row.BoxName,
+                ItemCount: row.ItemCount,
+                Kits: row.Kits,
+                Factory: row.Factory,
+                REMARKS: '',
+                CompletionDate: null,
+                Discrepancies: '',
+                updated_at: new Date().toISOString()
+            }));
+
+            const { error } = await supabaseClient.from(MAIN_TABLE).insert(insertPayload);
+            if (error) throw error;
+        }
+
+        for (const { row, existing } of pending.changedRows) {
+            const { error } = await supabaseClient
+                .from(MAIN_TABLE)
+                .update({
+                    NO: row.NO,
+                    Container: row.Container,
+                    BoxName: row.BoxName,
+                    ItemCount: row.ItemCount,
+                    Kits: row.Kits,
+                    Factory: row.Factory,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existing.id);
+
+            if (error) throw error;
+        }
+
+        await logAudit({
+            userEmail: appState.currentUser?.email || 'UNKNOWN',
+            action: 'SHIPMENT_UPLOAD',
+            details: `Shipment "${pending.shipmentName}": ${pending.newRows.length} new, ${pending.changedRows.length} updated, ${pending.unchangedCount} unchanged`,
+            tableName: MAIN_TABLE
+        });
+
+        elements.uploadShipmentStepReview.hidden = true;
+        elements.uploadShipmentStepDone.hidden = false;
+        elements.uploadShipmentDoneMessage.textContent =
+            `✅ Shipment "${pending.shipmentName}" saved: ${pending.newRows.length} new, ${pending.changedRows.length} updated.`;
+
+        await loadFromSupabase();
+        filterState.shipment = new Set([pending.shipmentName]);
+        localStorage.setItem(SELECTED_SHIPMENT_KEY, pending.shipmentName);
+        populateFilesSelectOptions();
+        renderFilteredAndLive();
+
+        appState.pendingShipmentUpload = null;
+    } catch (err) {
+        console.error('Shipment upload failed:', err);
+        alert('❌ Failed to save shipment changes to the database.');
+    } finally {
+        elements.uploadShipmentConfirmBtn.disabled = false;
+    }
 }
 
 async function applyBulkRemark(value) {
@@ -2252,7 +2568,7 @@ async function applyBulkRemark(value) {
         userEmail: appState.currentUser.email,
         action: 'BULK_UPDATE',
         details: `Applied "${remarkValue || 'Cleared'}" to ${count} filtered rows`,
-        tableName: appState.activeTable
+        tableName: appState.activeKey
     });
 
     elements.bulkRemarkSelect.value = ''; // reset dropdown
@@ -2286,7 +2602,7 @@ function setupEventListeners() {
         toggleExportMenu();
     });
 
-    document.querySelectorAll('.export-option').forEach(option => {
+    elements.exportMenu.querySelectorAll('.export-option').forEach(option => {
         option.addEventListener('mouseenter', () => {
             if (elements.exportMenuHint) {
                 elements.exportMenuHint.textContent = option.dataset.description || 'Export selected report.';
@@ -2319,7 +2635,67 @@ function setupEventListeners() {
         }
     });
 
-    elements.shipmentFilter.addEventListener('change', renderFilteredAndLive);
+    elements.uploadBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleUploadMenu();
+    });
+
+    elements.uploadMenu.querySelectorAll('.export-option').forEach(option => {
+        option.addEventListener('mouseenter', () => {
+            if (elements.uploadMenuHint) {
+                elements.uploadMenuHint.textContent = option.dataset.description || '';
+            }
+        });
+        option.addEventListener('focus', () => {
+            if (elements.uploadMenuHint) {
+                elements.uploadMenuHint.textContent = option.dataset.description || '';
+            }
+        });
+    });
+
+    if (elements.uploadMenu) {
+        elements.uploadMenu.addEventListener('mouseleave', () => {
+            if (elements.uploadMenuHint) {
+                elements.uploadMenuHint.textContent = 'Hover an option to see what it does.';
+            }
+        });
+    }
+
+    elements.viewLocalFileOption.addEventListener('click', () => {
+        toggleUploadMenu(false);
+        elements.fileInput.click();
+    });
+
+    elements.uploadNewShipmentOption.addEventListener('click', () => {
+        toggleUploadMenu(false);
+        openUploadShipmentModal();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!elements.uploadDropdown?.contains(event.target)) {
+            toggleUploadMenu(false);
+        }
+    });
+
+    elements.closeUploadShipmentModal.addEventListener('click', closeUploadShipmentModalFn);
+
+    window.addEventListener('click', (e) => {
+        if (e.target === elements.uploadShipmentModal) {
+            closeUploadShipmentModalFn();
+        }
+    });
+
+    elements.downloadShipmentTemplateBtn.addEventListener('click', downloadShipmentTemplate);
+    elements.uploadShipmentFileInput.addEventListener('change', handleUploadShipmentFileSelected);
+
+    elements.uploadShipmentBackBtn.addEventListener('click', () => {
+        appState.pendingShipmentUpload = null;
+        elements.uploadShipmentStepReview.hidden = true;
+        elements.uploadShipmentStepForm.hidden = false;
+    });
+
+    elements.uploadShipmentConfirmBtn.addEventListener('click', confirmUploadShipment);
+
     elements.searchInput.addEventListener('input', renderFilteredAndLive);
 
     renderMultiSelectMenu('status');
@@ -2358,7 +2734,6 @@ function setupEventListeners() {
     }
 
     elements.clearFiltersBtn.addEventListener('click', () => {
-        elements.shipmentFilter.value = 'all';
         resetMultiSelectFilters();
         elements.searchInput.value = '';
         renderFilteredAndLive();
@@ -2405,18 +2780,23 @@ function setupEventListeners() {
         }
     });
 
-    // FIX: Table selector event listener
-    elements.filesSelect.addEventListener('change', async () => {
-        appState.activeTable = elements.filesSelect.value;
-        localStorage.setItem('sims_active_table', appState.activeTable);
-        await loadFromSupabase();
-    });
-
     elements.filesSelect.addEventListener('change', () => {
-        const key = elements.filesSelect.value;
-        if (key && appState.files[key]) {
-            setActiveFile(key);
+        const value = elements.filesSelect.value;
+        if (!value) return;
+
+        if (appState.files[value]) {
+            // A previously uploaded local preview file
+            setActiveFile(value);
+            return;
         }
+
+        // One of the live shipments
+        appState.activeKey = MAIN_TABLE;
+        filterState.shipment = new Set([value]);
+        localStorage.setItem(SELECTED_SHIPMENT_KEY, value);
+        buildFactoryFilter();
+        buildContainerFilter();
+        renderFilteredAndLive();
     });
 
     elements.fileInput.addEventListener('change', async (e) => {
@@ -2450,13 +2830,7 @@ function setupEventListeners() {
                 columns: EXPECTED_COLS.slice()
             };
 
-            // Add to dropdown
-            const option = document.createElement('option');
-            option.value = key;
-            option.textContent = file.name;
-            elements.filesSelect.appendChild(option);
-
-            // Set uploaded file as active
+            // Set uploaded file as active (also adds it to the dropdown)
             setActiveFile(key);
 
             logAudit({
@@ -2479,18 +2853,10 @@ function setupEventListeners() {
 // ==================== INITIALIZATION ====================
 async function init() {
     applyTheme(getStoredTheme());
-    appState.activeTable = getStoredActiveTable();
 
     if (!checkAuthentication()) return;
 
     elements.viewAuditBtn.style.display = isMasterAdmin() ? 'inline-flex' : 'none';
-
-    // Populate table dropdown
-    elements.filesSelect.innerHTML = tableOptions
-        .map(t => `<option value="${t.key}">${t.name}</option>`)
-        .join('');
-
-    elements.filesSelect.value = appState.activeTable;
 
     setupEventListeners();
     buildAuditActionFilter();
@@ -2502,7 +2868,6 @@ async function init() {
 
     console.log('✅ Application initialized for:', appState.currentUser.email);
     console.log('✅ Role:', appState.currentRole);
-    console.log('✅ Active table:', appState.activeTable);
 }
 
 // Start the application

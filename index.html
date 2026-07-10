@@ -47,7 +47,7 @@
         <section class="action-bar card">
             <div class="action-left">
                 <label class="select-label">
-                    Active File
+                    Shipment
                     <select id="filesSelect" class="styled-select"></select>
                 </label>
 
@@ -60,10 +60,17 @@
             </div>
 
             <div class="action-right">
-                <label class="btn btn-upload" id="uploadLabel">
-                    <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple />
-                    📁 Upload File
-                </label>
+                <div class="export-dropdown" id="uploadDropdown">
+                    <button id="uploadBtn" class="btn btn-upload export-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                        📁 Upload
+                    </button>
+                    <div id="uploadMenu" class="export-menu" hidden>
+                        <button class="export-option" type="button" id="viewLocalFileOption" data-description="Preview a spreadsheet from your computer locally — nothing is saved to the database.">📁 View Local File</button>
+                        <button class="export-option" type="button" id="uploadNewShipmentOption" data-description="Upload a filled-in template to add a new shipment, or re-upload one to add/update boxes without touching inspection progress.">⬆️ Upload New Shipment</button>
+                        <div id="uploadMenuHint" class="export-menu-hint">Hover an option to see what it does.</div>
+                    </div>
+                </div>
+                <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple hidden />
                 <div class="export-dropdown" id="exportDropdown">
                     <button id="exportBtn" class="btn btn-primary export-trigger" type="button" aria-haspopup="true" aria-expanded="false">
                         📊 Export
@@ -89,11 +96,6 @@
             <span class="section-sub">Factory · Container · Status · Box Type</span>
         </div>
         <section class="controls card">
-            <div style="display: none;">
-                <select id="shipmentFilter" class="styled-select" aria-hidden="true" tabindex="-1">
-                    <option value="all">All</option>
-                </select>
-            </div>
             <div class="filters">
                 <label>
                     Factory
@@ -328,6 +330,45 @@
             </div>
             <div class="modal-body">
                 <div id="pendingUsers" class="pending-users"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload New Shipment Modal (Admin Only) -->
+    <div id="uploadShipmentModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload New Shipment</h2>
+                <button class="modal-close" id="closeUploadShipmentModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-shipment-step" id="uploadShipmentStepForm">
+                    <label class="upload-shipment-field">
+                        Shipment Name
+                        <input type="text" id="uploadShipmentName" placeholder="e.g. AUG 2026" class="search-input" />
+                    </label>
+                    <div class="upload-shipment-actions">
+                        <button id="downloadShipmentTemplateBtn" class="btn btn-sm" type="button">⬇️ Download Template</button>
+                        <label class="btn btn-sm" id="uploadShipmentFileLabel">
+                            📄 Select Filled Template
+                            <input type="file" id="uploadShipmentFileInput" accept=".xlsx,.xls,.csv" hidden />
+                        </label>
+                    </div>
+                    <p class="muted upload-shipment-hint">Enter the shipment name, download the template, fill it in, then select the completed file. New boxes are added and changed boxes are updated — inspection status (Remarks, Completion Date, Discrepancies) is never touched by an upload.</p>
+                </div>
+
+                <div class="upload-shipment-step" id="uploadShipmentStepReview" hidden>
+                    <div id="uploadShipmentSummary" class="upload-shipment-summary"></div>
+                    <div id="uploadShipmentDetails" class="upload-shipment-details"></div>
+                    <div class="upload-shipment-actions">
+                        <button id="uploadShipmentBackBtn" class="btn btn-sm" type="button">Back</button>
+                        <button id="uploadShipmentConfirmBtn" class="btn btn-primary" type="button">Confirm & Save</button>
+                    </div>
+                </div>
+
+                <div class="upload-shipment-step" id="uploadShipmentStepDone" hidden>
+                    <p id="uploadShipmentDoneMessage"></p>
+                </div>
             </div>
         </div>
     </div>

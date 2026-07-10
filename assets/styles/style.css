@@ -1097,6 +1097,62 @@ td input[type="date"] {
     flex-wrap: wrap;
 }
 
+.upload-shipment-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 16px;
+}
+
+.upload-shipment-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.upload-shipment-hint {
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.upload-shipment-summary {
+    margin-bottom: 12px;
+    line-height: 1.6;
+}
+
+.upload-shipment-factory-breakdown {
+    margin: 4px 0 10px;
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
+.upload-shipment-details {
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+}
+
+.upload-shipment-details h4 {
+    margin: 10px 0 6px;
+}
+
+.upload-shipment-details ul {
+    margin: 0 0 8px;
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
 .audit-filters input,
 .audit-filters select {
     padding: 8px 12px;
