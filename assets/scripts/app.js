@@ -34,6 +34,179 @@ const appState = {
     summaryMode: 'boxes'
 };
 
+// ==================== MULTI-SELECT FILTERS ====================
+const filterState = {
+    factory: new Set(['all']),
+    container: new Set(['all']),
+    status: new Set(['all']),
+    boxType: new Set(['all'])
+};
+
+const filterOptions = {
+    factory: [],
+    container: [],
+    status: [
+        { value: 'Military Inspection (Done)', label: 'Military Inspection (Done)' },
+        { value: 'Pre-Inspection', label: 'Pre-Inspection' },
+        { value: 'Not Started', label: 'Not Started' },
+        { value: 'Remaining', label: 'Remaining' }
+    ],
+    boxType: [
+        { value: 'normal', label: 'Normal' },
+        { value: 'multi', label: 'Multi-pack' }
+    ]
+};
+
+const filterConfig = {
+    factory: { btn: 'factoryFilterBtn', menu: 'factoryFilterMenu' },
+    container: { btn: 'containerFilterBtn', menu: 'containerFilterMenu' },
+    status: { btn: 'statusFilterBtn', menu: 'statusFilterMenu' },
+    boxType: { btn: 'boxTypeFilterBtn', menu: 'boxTypeFilterMenu' }
+};
+
+function escapeHtmlAttr(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function renderMultiSelectMenu(key) {
+    const cfg = filterConfig[key];
+    const menu = elements[cfg.menu];
+    if (!menu) return;
+    const options = filterOptions[key];
+    const selected = filterState[key];
+
+    // Drop selections that no longer exist in the current option set
+    const validValues = new Set(options.map(o => o.value));
+    for (const v of [...selected]) {
+        if (v !== 'all' && !validValues.has(v)) selected.delete(v);
+    }
+    if (selected.size === 0) selected.add('all');
+
+    const allChecked = selected.has('all');
+    menu.innerHTML = `
+        <label class="ms-option ms-option-all">
+            <input type="checkbox" data-value="all" ${allChecked ? 'checked' : ''} />
+            <span>All</span>
+        </label>
+        <div class="ms-option-divider"></div>
+        ${options.map(o => `
+            <label class="ms-option">
+                <input type="checkbox" data-value="${escapeHtmlAttr(o.value)}" ${(!allChecked && selected.has(o.value)) ? 'checked' : ''} />
+                <span>${escapeHtmlAttr(o.label)}</span>
+            </label>
+        `).join('')}
+    `;
+
+    updateMultiSelectButtonLabel(key);
+}
+
+function updateMultiSelectButtonLabel(key) {
+    const cfg = filterConfig[key];
+    const btn = elements[cfg.btn];
+    if (!btn) return;
+    const selected = filterState[key];
+    const options = filterOptions[key];
+
+    if (selected.has('all') || selected.size === 0) {
+        btn.textContent = 'All';
+        return;
+    }
+    if (selected.size === 1) {
+        const v = [...selected][0];
+        const opt = options.find(o => o.value === v);
+        btn.textContent = opt ? opt.label : v;
+        return;
+    }
+    btn.textContent = `${selected.size} selected`;
+}
+
+function handleMultiSelectMenuChange(key, e) {
+    const target = e.target;
+    if (!target.matches('input[type="checkbox"]')) return;
+    const value = target.dataset.value;
+    const selected = filterState[key];
+
+    if (value === 'all') {
+        selected.clear();
+        selected.add('all');
+    } else {
+        selected.delete('all');
+        if (target.checked) selected.add(value);
+        else selected.delete(value);
+        if (selected.size === 0) selected.add('all');
+    }
+
+    renderMultiSelectMenu(key);
+    renderFilteredAndLive();
+}
+
+function toggleMultiSelectMenu(key) {
+    const cfg = filterConfig[key];
+    const menu = elements[cfg.menu];
+    const shouldOpen = menu.hidden;
+    Object.keys(filterConfig).forEach(k => {
+        elements[filterConfig[k].menu].hidden = true;
+    });
+    menu.hidden = !shouldOpen;
+}
+
+function resetMultiSelectFilters() {
+    Object.keys(filterConfig).forEach(key => {
+        filterState[key] = new Set(['all']);
+        renderMultiSelectMenu(key);
+    });
+}
+
+function matchesMultiSet(selected, rawValue) {
+    if (!selected || selected.size === 0 || selected.has('all')) return true;
+    return selected.has(String(rawValue ?? '').trim());
+}
+
+function matchesStatusMultiSet(selected, row) {
+    if (!selected || selected.size === 0 || selected.has('all')) return true;
+    const status = classifyStatus(row.REMARKS);
+    for (const v of selected) {
+        if (v === 'Remaining') {
+            if (status !== 'Military Inspection (Done)') return true;
+            continue;
+        }
+        if (v === status) return true;
+    }
+    return false;
+}
+
+function matchesBoxTypeMultiSet(selected, row) {
+    if (!selected || selected.size === 0 || selected.has('all')) return true;
+    for (const v of selected) {
+        if (matchesBoxTypeFilter(row, v)) return true;
+    }
+    return false;
+}
+
+function applyActiveFilters(rows) {
+    const fShipment = elements.shipmentFilter.value || 'all';
+    const q = (elements.searchInput.value || '').trim().toLowerCase();
+
+    return rows.filter(r => {
+        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
+        if (!matchesMultiSet(filterState.factory, r.Factory)) return false;
+        if (!matchesMultiSet(filterState.container, r.ContainerNum)) return false;
+        if (!matchesBoxTypeMultiSet(filterState.boxType, r)) return false;
+        if (!matchesStatusMultiSet(filterState.status, r)) return false;
+
+        if (q) {
+            const hay = Object.values(r).join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+
+        return true;
+    });
+}
+
 // Table options
 const tableOptions = [
     { key: 'inspection_boxes', name: 'NOV 2025' },
@@ -59,10 +232,14 @@ const elements = {
     exportMenuHint: document.getElementById('exportMenuHint'),
     viewAuditBtn: document.getElementById('viewAuditBtn'),
     shipmentFilter: document.getElementById('shipmentFilter'),
-    factoryFilter: document.getElementById('factoryFilter'),
-    containerFilter: document.getElementById('containerFilter'),
-    statusFilter: document.getElementById('statusFilter'),
-    boxTypeFilter: document.getElementById('boxTypeFilter'),
+    factoryFilterBtn: document.getElementById('factoryFilterBtn'),
+    factoryFilterMenu: document.getElementById('factoryFilterMenu'),
+    containerFilterBtn: document.getElementById('containerFilterBtn'),
+    containerFilterMenu: document.getElementById('containerFilterMenu'),
+    statusFilterBtn: document.getElementById('statusFilterBtn'),
+    statusFilterMenu: document.getElementById('statusFilterMenu'),
+    boxTypeFilterBtn: document.getElementById('boxTypeFilterBtn'),
+    boxTypeFilterMenu: document.getElementById('boxTypeFilterMenu'),
     searchInput: document.getElementById('searchInput'),
     clearFiltersBtn: document.getElementById('clearFiltersBtn'),
     showBoxSummaryBtn: document.getElementById('showBoxSummaryBtn'),
@@ -224,34 +401,7 @@ function getFilteredRows() {
     const allRows = appState.files[appState.activeKey].rows || [];
     sortRowsByShipmentAndContainer(allRows);
 
-    const fShipment = elements.shipmentFilter.value || 'all';
-    const fFactory = elements.factoryFilter.value || 'all';
-    const fContainer = elements.containerFilter.value || 'all';
-    const fStatus = elements.statusFilter.value || 'all';
-    const fBoxType = elements.boxTypeFilter.value || 'all';
-    const q = (elements.searchInput.value || '').trim().toLowerCase();
-
-    return allRows.filter(r => {
-        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
-        if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
-        if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
-        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
-
-        if (fStatus !== 'all') {
-            const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
-            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
-            if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
-        }
-
-        if (q) {
-            const hay = Object.values(r).join(' ').toLowerCase();
-            if (!hay.includes(q)) return false;
-        }
-
-        return true;
-    });
+    return applyActiveFilters(allRows);
 }
 
 function updateUIForUser() {
@@ -927,10 +1077,8 @@ function buildFactoryFilter() {
         const v = String(r.Factory ?? '').trim();
         if (v) set.add(v);
     });
-    const opts = ['<option value="all">All</option>']
-        .concat([...set].sort().map(f => `<option value="${f}">${f}</option>`))
-        .join('');
-    elements.factoryFilter.innerHTML = opts;
+    filterOptions.factory = [...set].sort().map(f => ({ value: f, label: f }));
+    renderMultiSelectMenu('factory');
 }
 
 function buildContainerFilter() {
@@ -945,10 +1093,8 @@ function buildContainerFilter() {
         return { original: c, number: isNaN(n) ? Infinity : n };
     });
     containerArray.sort((a, b) => a.number - b.number);
-    const opts = ['<option value="all">All</option>']
-        .concat(containerArray.map(c => `<option value="${c.original}">${c.original}</option>`))
-        .join('');
-    elements.containerFilter.innerHTML = opts;
+    filterOptions.container = containerArray.map(c => ({ value: c.original, label: c.original }));
+    renderMultiSelectMenu('container');
 }
 
 function renderFilteredAndLive() {
@@ -956,34 +1102,7 @@ function renderFilteredAndLive() {
     const allRows = appState.files[appState.activeKey].rows || [];
     sortRowsByShipmentAndContainer(allRows);
 
-    const fShipment = elements.shipmentFilter.value || 'all';
-    const fFactory = elements.factoryFilter.value || 'all';
-    const fContainer = elements.containerFilter.value || 'all';
-    const fStatus = elements.statusFilter.value || 'all';
-    const fBoxType = elements.boxTypeFilter.value || 'all';
-    const q = (elements.searchInput.value || '').trim().toLowerCase();
-
-    const filtered = allRows.filter(r => {
-        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
-        if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
-        if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
-        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
-
-        if (fStatus !== 'all') {
-            const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
-            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
-            if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
-        }
-
-        if (q) {
-            const hay = Object.values(r).join(' ').toLowerCase();
-            if (!hay.includes(q)) return false;
-        }
-
-        return true;
-    });
+    const filtered = applyActiveFilters(allRows);
 
     renderTable(filtered);
     renderSummary(filtered);
@@ -2106,34 +2225,7 @@ async function applyBulkRemark(value) {
     const allRows = appState.files[appState.activeKey].rows || [];
     sortRowsByShipmentAndContainer(allRows);
 
-    const fShipment = elements.shipmentFilter.value || 'all';
-    const fFactory = elements.factoryFilter.value || 'all';
-    const fContainer = elements.containerFilter.value || 'all';
-    const fStatus = elements.statusFilter.value || 'all';
-    const fBoxType = elements.boxTypeFilter.value || 'all';
-    const q = (elements.searchInput.value || '').trim().toLowerCase();
-
-    const filtered = allRows.filter(r => {
-        if (fShipment !== 'all' && String(r.shipment ?? '') !== fShipment) return false;
-        if (fFactory !== 'all' && String(r.Factory ?? '') !== fFactory) return false;
-        if (fContainer !== 'all' && String(r.ContainerNum ?? '') !== fContainer) return false;
-        if (!matchesBoxTypeFilter(r, fBoxType)) return false;
-
-        if (fStatus !== 'all') {
-            const status = classifyStatus(r.REMARKS);
-            if (fStatus === 'Military Inspection (Done)' && status !== 'Military Inspection (Done)') return false;
-            if (fStatus === 'Pre-Inspection' && status !== 'Pre-Inspection') return false;
-            if (fStatus === 'Not Started' && status !== 'Not Started') return false;
-            if (fStatus === 'Remaining' && status === 'Military Inspection (Done)') return false;
-        }
-
-        if (q) {
-            const hay = Object.values(r).join(' ').toLowerCase();
-            if (!hay.includes(q)) return false;
-        }
-
-        return true;
-    });
+    const filtered = applyActiveFilters(allRows);
 
     if (filtered.length === 0) return;
 
@@ -2228,11 +2320,28 @@ function setupEventListeners() {
     });
 
     elements.shipmentFilter.addEventListener('change', renderFilteredAndLive);
-    elements.factoryFilter.addEventListener('change', renderFilteredAndLive);
-    elements.containerFilter.addEventListener('change', renderFilteredAndLive);
-    elements.statusFilter.addEventListener('change', renderFilteredAndLive);
-    elements.boxTypeFilter.addEventListener('change', renderFilteredAndLive);
     elements.searchInput.addEventListener('input', renderFilteredAndLive);
+
+    renderMultiSelectMenu('status');
+    renderMultiSelectMenu('boxType');
+
+    Object.keys(filterConfig).forEach(key => {
+        const cfg = filterConfig[key];
+        elements[cfg.btn].addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMultiSelectMenu(key);
+        });
+        elements[cfg.menu].addEventListener('change', (e) => handleMultiSelectMenuChange(key, e));
+    });
+
+    document.addEventListener('click', (e) => {
+        Object.keys(filterConfig).forEach(key => {
+            const cfg = filterConfig[key];
+            if (!elements[cfg.btn].contains(e.target) && !elements[cfg.menu].contains(e.target)) {
+                elements[cfg.menu].hidden = true;
+            }
+        });
+    });
 
     if (elements.showBoxSummaryBtn) {
         elements.showBoxSummaryBtn.addEventListener('click', () => {
@@ -2250,10 +2359,7 @@ function setupEventListeners() {
 
     elements.clearFiltersBtn.addEventListener('click', () => {
         elements.shipmentFilter.value = 'all';
-        elements.factoryFilter.value = 'all';
-        elements.containerFilter.value = 'all';
-        elements.statusFilter.value = 'all';
-        elements.boxTypeFilter.value = 'all';
+        resetMultiSelectFilters();
         elements.searchInput.value = '';
         renderFilteredAndLive();
     });

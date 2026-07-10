@@ -552,6 +552,65 @@ body {
     padding-right: 35px;
 }
 
+.ms-filter {
+    position: relative;
+}
+
+.ms-trigger {
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ms-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 200px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+    z-index: 1100;
+}
+
+.ms-menu .ms-option {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--control-text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ms-option:hover {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.ms-option input[type="checkbox"] {
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.ms-option-all {
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.ms-option-divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border);
+}
+
 .rows-count {
     display: flex;
     align-items: center;
