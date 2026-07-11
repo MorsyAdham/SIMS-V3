@@ -373,6 +373,23 @@
         </div>
     </div>
 
+    <!-- Discrepancy Manager Modal -->
+    <div id="discrepancyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="discrepancyModalTitle">Discrepancies</h2>
+                <button class="modal-close" id="closeDiscrepancyModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="discrepancy-add-row" id="discrepancyAddRow">
+                    <input type="text" id="discrepancyNewText" placeholder="Describe a discrepancy..." class="search-input" />
+                    <button id="discrepancyAddBtn" class="btn btn-primary btn-sm" type="button">Add</button>
+                </div>
+                <ul id="discrepancyList" class="discrepancy-list"></ul>
+            </div>
+        </div>
+    </div>
+
     <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

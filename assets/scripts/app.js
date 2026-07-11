@@ -31,7 +31,8 @@ const appState = {
     activeKey: null,
     charts: { progress: null, container: null, factory: null, daily: null },
     summaryMode: 'boxes',
-    pendingShipmentUpload: null
+    pendingShipmentUpload: null,
+    activeDiscrepancyRow: null
 };
 
 // ==================== MULTI-SELECT FILTERS ====================
@@ -241,6 +242,13 @@ const elements = {
     uploadShipmentConfirmBtn: document.getElementById('uploadShipmentConfirmBtn'),
     uploadShipmentStepDone: document.getElementById('uploadShipmentStepDone'),
     uploadShipmentDoneMessage: document.getElementById('uploadShipmentDoneMessage'),
+    discrepancyModal: document.getElementById('discrepancyModal'),
+    discrepancyModalTitle: document.getElementById('discrepancyModalTitle'),
+    closeDiscrepancyModal: document.getElementById('closeDiscrepancyModal'),
+    discrepancyAddRow: document.getElementById('discrepancyAddRow'),
+    discrepancyNewText: document.getElementById('discrepancyNewText'),
+    discrepancyAddBtn: document.getElementById('discrepancyAddBtn'),
+    discrepancyList: document.getElementById('discrepancyList'),
     exportBtn: document.getElementById('exportBtn'),
     exportDropdown: document.getElementById('exportDropdown'),
     exportMenu: document.getElementById('exportMenu'),
@@ -1267,6 +1275,31 @@ function renderTable(rows) {
                 });
 
                 td.appendChild(input);
+            } else if (c === 'Discrepancies') {
+                const count = getRowDiscrepancies(r).length;
+
+                if (count > 0) {
+                    tr.classList.add('has-discrepancy');
+
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'discrepancy-trigger has-items';
+                    btn.textContent = `⚠ ${count}`;
+                    btn.title = 'View discrepancies';
+                    btn.addEventListener('click', () => openDiscrepancyModal(r, { focusInput: false }));
+                    td.appendChild(btn);
+                } else if (isAdmin) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'discrepancy-trigger';
+                    btn.textContent = '+ Add';
+                    btn.title = 'Add a discrepancy';
+                    btn.addEventListener('click', () => openDiscrepancyModal(r, { focusInput: true }));
+                    td.appendChild(btn);
+                } else {
+                    td.textContent = '—';
+                    td.classList.add('discrepancy-empty-cell');
+                }
             } else {
                 td.contentEditable = isAdmin;
                 td.spellcheck = false;
@@ -1929,6 +1962,144 @@ function hasDiscrepancy(value) {
     return text !== '' && text !== 'n/a' && text !== 'na' && text !== 'none';
 }
 
+// ==================== DISCREPANCIES (structured, multi-entry) ====================
+// Stored as a JSON array of {id, text} inside the existing Discrepancies text
+// column -- no DB schema change needed. Legacy free-text values (from before
+// this feature existed) are transparently read as a single entry so nothing
+// is lost; they only get rewritten as JSON once the user actually edits them.
+let discrepancyIdCounter = 0;
+function generateDiscrepancyId() {
+    discrepancyIdCounter += 1;
+    return `d${Date.now()}_${discrepancyIdCounter}`;
+}
+
+function parseDiscrepancies(raw) {
+    const text = String(raw ?? '').trim();
+    if (!text) return [];
+
+    if (text.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) {
+                return parsed
+                    .map(entry => ({ id: entry.id || generateDiscrepancyId(), text: String(entry.text ?? '').trim() }))
+                    .filter(entry => entry.text);
+            }
+        } catch (err) {
+            // Not valid JSON -- fall through and treat it as legacy free text.
+        }
+    }
+
+    if (!hasDiscrepancy(text)) return [];
+    return [{ id: generateDiscrepancyId(), text }];
+}
+
+function stringifyDiscrepancies(entries) {
+    if (!entries || entries.length === 0) return '';
+    return JSON.stringify(entries);
+}
+
+function getRowDiscrepancies(row) {
+    return parseDiscrepancies(row.Discrepancies);
+}
+
+async function addDiscrepancy(row, text) {
+    const trimmed = String(text ?? '').trim();
+    if (!trimmed) return;
+
+    const entries = getRowDiscrepancies(row);
+    entries.push({ id: generateDiscrepancyId(), text: trimmed });
+    row.Discrepancies = stringifyDiscrepancies(entries);
+
+    await updateRowInSupabase(row, 'Discrepancies');
+    renderFilteredAndLive();
+}
+
+async function editDiscrepancy(row, discrepancyId, newText) {
+    const entries = getRowDiscrepancies(row);
+    const entry = entries.find(e => e.id === discrepancyId);
+    if (!entry) return;
+
+    const trimmed = String(newText ?? '').trim();
+    if (!trimmed) {
+        await deleteDiscrepancy(row, discrepancyId);
+        return;
+    }
+
+    entry.text = trimmed;
+    row.Discrepancies = stringifyDiscrepancies(entries);
+
+    await updateRowInSupabase(row, 'Discrepancies');
+    renderFilteredAndLive();
+}
+
+async function deleteDiscrepancy(row, discrepancyId) {
+    const entries = getRowDiscrepancies(row).filter(e => e.id !== discrepancyId);
+    row.Discrepancies = stringifyDiscrepancies(entries);
+
+    await updateRowInSupabase(row, 'Discrepancies');
+    renderFilteredAndLive();
+}
+
+// Expands each qualifying box into one row per logged discrepancy (all
+// other columns duplicated as-is), for the Discrepancies report.
+function buildDiscrepancyReportRows(rows) {
+    const expanded = [];
+    let runningNo = 1;
+
+    rows.forEach(row => {
+        getRowDiscrepancies(row).forEach(entry => {
+            expanded.push({ ...row, NO: runningNo++, Discrepancies: entry.text });
+        });
+    });
+
+    return expanded;
+}
+
+function openDiscrepancyModal(row, { focusInput = false } = {}) {
+    if (!elements.discrepancyModal) return;
+
+    appState.activeDiscrepancyRow = row;
+    elements.discrepancyModalTitle.textContent = `Discrepancies — Container ${row.ContainerNum} / Box ${row.BoxNum}`;
+    elements.discrepancyNewText.value = '';
+    if (elements.discrepancyAddRow) {
+        elements.discrepancyAddRow.hidden = !isAdminRole(appState.currentRole);
+    }
+    renderDiscrepancyList();
+    elements.discrepancyModal.classList.add('active');
+
+    if (focusInput) elements.discrepancyNewText.focus();
+}
+
+function closeDiscrepancyModalFn() {
+    if (!elements.discrepancyModal) return;
+    elements.discrepancyModal.classList.remove('active');
+    appState.activeDiscrepancyRow = null;
+}
+
+function renderDiscrepancyList() {
+    const row = appState.activeDiscrepancyRow;
+    if (!row) return;
+
+    const entries = getRowDiscrepancies(row);
+    const isAdmin = isAdminRole(appState.currentRole);
+
+    if (entries.length === 0) {
+        elements.discrepancyList.innerHTML = '<li class="muted discrepancy-empty">No discrepancies logged yet.</li>';
+        return;
+    }
+
+    elements.discrepancyList.innerHTML = entries.map(entry => `
+        <li class="discrepancy-item" data-id="${escapeHtmlAttr(entry.id)}">
+            <span class="discrepancy-text">${escapeHtmlAttr(entry.text)}</span>
+            <div class="discrepancy-actions">
+                <button type="button" class="btn btn-sm discrepancy-edit-btn" ${isAdmin ? '' : 'disabled'}>Edit</button>
+                <button type="button" class="btn btn-sm discrepancy-delete-btn" ${isAdmin ? '' : 'disabled'}>Delete</button>
+            </div>
+        </li>
+    `).join('');
+}
+
 function getOrderedFactoryValues(rows, preferredOrder = []) {
     const seen = new Set();
     const values = [];
@@ -2192,31 +2363,38 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
     }
 
     const entry = appState.files[appState.activeKey];
+    // Reports must only reflect the currently selected shipment, never every
+    // shipment in the consolidated dataset (matchesMultiSet treats 'all' as
+    // a no-op, so this is a no-op when previewing a local file).
+    const shipmentScopedRows = entry.rows.filter(row => matchesMultiSet(filterState.shipment, row.shipment));
+
     const exportConfig = EXPORT_TYPE_OPTIONS[selectedExportType] || EXPORT_TYPE_OPTIONS.data_summary;
     const exportColumns = EXPECTED_COLS.filter(col => !EXPORT_EXCLUDED_COLS.has(col));
     const preferredFactoryOrder = ["F200", "F100", "AIO"];
-    const orderedFactories = getOrderedFactoryValues(entry.rows, preferredFactoryOrder);
-    const containerDestinationMap = getContainerDestinationMap(entry.rows);
+    const orderedFactories = getOrderedFactoryValues(shipmentScopedRows, preferredFactoryOrder);
+    const containerDestinationMap = getContainerDestinationMap(shipmentScopedRows);
 
     // Data Sheet
-    const dataRows = buildExportDataRows(entry.rows, exportColumns, {
+    const dataRows = buildExportDataRows(shipmentScopedRows, exportColumns, {
         containerDestinationMap
     });
     const dataColumns = [...exportColumns];
     const wsData = buildStyledRowsSheet(dataRows, dataColumns);
 
-    const wsAnalytics = buildStyledAnalyticsSheet(entry.rows);
-    const wsSummary = buildStyledSummarySheet(entry.rows, orderedFactories);
+    const wsAnalytics = buildStyledAnalyticsSheet(shipmentScopedRows);
+    const wsSummary = buildStyledSummarySheet(shipmentScopedRows, orderedFactories);
 
-    const remainingRows = entry.rows.filter(row => classifyStatus(row.REMARKS) !== 'Military Inspection (Done)');
-    const inProgressRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Pre-Inspection');
-    const completedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Military Inspection (Done)');
-    const notStartedRows = entry.rows.filter(row => classifyStatus(row.REMARKS) === 'Not Started');
-    const discrepancyRows = entry.rows.filter(row => hasDiscrepancy(row.Discrepancies));
+    const remainingRows = shipmentScopedRows.filter(row => classifyStatus(row.REMARKS) !== 'Military Inspection (Done)');
+    const inProgressRows = shipmentScopedRows.filter(row => classifyStatus(row.REMARKS) === 'Pre-Inspection');
+    const completedRows = shipmentScopedRows.filter(row => classifyStatus(row.REMARKS) === 'Military Inspection (Done)');
+    const notStartedRows = shipmentScopedRows.filter(row => classifyStatus(row.REMARKS) === 'Not Started');
+    const discrepancyRows = buildDiscrepancyReportRows(
+        shipmentScopedRows.filter(row => getRowDiscrepancies(row).length > 0)
+    );
     const reportDefinitions = {
         data_summary: {
             sheetName: "Data",
-            rows: entry.rows,
+            rows: shipmentScopedRows,
             extraColumns: []
         },
         remaining: {
@@ -2254,7 +2432,7 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
         XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
         orderedFactories.forEach(fac => {
-            const filtered = entry.rows.filter(r => (normalizeReportText(r.Factory) || 'UNKNOWN') === fac);
+            const filtered = shipmentScopedRows.filter(r => (normalizeReportText(r.Factory) || 'UNKNOWN') === fac);
             const ws = buildStyledAnalyticsSheet(filtered);
             const safe = `Analytics_${fac}`.replace(/[^A-Za-z0-9_]/g, "");
             XLSX.utils.book_append_sheet(wb, ws, safe);
@@ -2279,7 +2457,7 @@ function exportWorkbookWithAnalytics(selectedExportType = 'data_summary') {
     logAudit({
         userEmail: appState.currentUser?.email || 'UNKNOWN',
         action: 'DATA_EXPORT',
-        details: `Exported "${exportLabel}" report with ${entry.rows.length} records (${outName})`,
+        details: `Exported "${exportLabel}" report with ${shipmentScopedRows.length} records (${outName})`,
         tableName: appState.activeKey
     });
 }
@@ -2699,6 +2877,56 @@ function setupEventListeners() {
     });
 
     elements.uploadShipmentConfirmBtn.addEventListener('click', confirmUploadShipment);
+
+    elements.closeDiscrepancyModal.addEventListener('click', closeDiscrepancyModalFn);
+
+    window.addEventListener('click', (e) => {
+        if (e.target === elements.discrepancyModal) {
+            closeDiscrepancyModalFn();
+        }
+    });
+
+    async function submitNewDiscrepancy() {
+        const text = elements.discrepancyNewText.value;
+        const row = appState.activeDiscrepancyRow;
+        if (!row || !String(text ?? '').trim()) return;
+
+        await addDiscrepancy(row, text);
+        elements.discrepancyNewText.value = '';
+        renderDiscrepancyList();
+    }
+
+    elements.discrepancyAddBtn.addEventListener('click', submitNewDiscrepancy);
+
+    elements.discrepancyNewText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitNewDiscrepancy();
+        }
+    });
+
+    elements.discrepancyList.addEventListener('click', async (e) => {
+        const item = e.target.closest('.discrepancy-item');
+        if (!item) return;
+
+        const row = appState.activeDiscrepancyRow;
+        if (!row) return;
+
+        const discrepancyId = item.dataset.id;
+
+        if (e.target.classList.contains('discrepancy-delete-btn')) {
+            if (!confirm('Delete this discrepancy?')) return;
+            await deleteDiscrepancy(row, discrepancyId);
+            renderDiscrepancyList();
+        } else if (e.target.classList.contains('discrepancy-edit-btn')) {
+            const entry = getRowDiscrepancies(row).find(en => en.id === discrepancyId);
+            if (!entry) return;
+            const newText = prompt('Edit discrepancy:', entry.text);
+            if (newText === null) return;
+            await editDiscrepancy(row, discrepancyId, newText);
+            renderDiscrepancyList();
+        }
+    });
 
     elements.searchInput.addEventListener('input', renderFilteredAndLive);
 
