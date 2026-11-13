@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="10;url=https://sims-gamma.vercel.app/">
+<title>SIMS has moved</title>
+<style>
+    :root { --bg: #f3f4f6; --card: #ffffff; --ink: #0f172a; --muted: #4b5563; --accent: #4656b8; --track: #e5e7eb; }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg: #07111f; --card: #0f1b2e; --ink: #e5eefb; --muted: #a5b4c8; --accent: #8da2ff; --track: #1f2d44; }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; place-items: center; padding: 24px; background: var(--bg); color: var(--ink); font: 16px/1.55 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { width: min(560px, 100%); background: var(--card); border-radius: 16px; padding: 40px 36px 32px; }
+    .mark { font-weight: 800; font-size: 18px; letter-spacing: -0.01em; color: var(--accent); margin: 0 0 20px; }
+    h1 { margin: 0 0 12px; font-size: 32px; line-height: 1.1; letter-spacing: -0.03em; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    p.lead { color: var(--ink); }
+    .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin: 24px 0 14px; }
+    .bar i { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); animation: fill 10s linear forwards; }
+    @keyframes fill { to { transform: scaleX(1); } }
+    .row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .row span { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+    a.go { display: inline-block; padding: 11px 20px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
+    @media (prefers-color-scheme: dark) { a.go { color: #07111f; } }
+    a.go:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+    small { display: block; margin-top: 20px; color: var(--muted); font-size: 13px; }
+    @media (prefers-reduced-motion: reduce) { .bar i { animation: none; transform: scaleX(1); opacity: .35; } }
+    @media (max-width: 480px) { main { padding: 28px 22px 24px; } h1 { font-size: 27px; } }
+</style>
+</head>
+<body>
+<main>
+    <p class="mark">SIMS</p>
+    <h1>SIMS has a new home</h1>
+    <p class="lead">The Shipment Inspection Management System now runs at <b>sims-gamma.vercel.app</b>.</p>
+    <p>You will be taken there automatically. Sign in again when you arrive: saved sign-in and theme do not carry over to the new address.</p>
+    <div class="bar" aria-hidden="true"><i></i></div>
+    <div class="row">
+        <a id="go" class="go" href="https://sims-gamma.vercel.app/">Go now</a>
+        <span id="count" role="status" aria-live="polite">Redirecting in 10 seconds</span>
+    </div>
+    <small>Bookmarked an old page? Update it to the new address.</small>
+</main>
+<script>
+    (function () {
+        var base = 'https://sims-gamma.vercel.app';
+        var path = /login(\.html)?\/?$/i.test(location.pathname) ? '/login' : '/';
+        var target = base + path + (location.hash || '');
+        var go = document.getElementById('go');
+        var out = document.getElementById('count');
+        go.href = target;
+        var left = 10;
+        var timer = setInterval(function () {
+            left -= 1;
+            if (left <= 0) { clearInterval(timer); location.replace(target); return; }
+            out.textContent = 'Redirecting in ' + left + ' second' + (left === 1 ? '' : 's');
+        }, 1000);
+    })();
+</script>
+<noscript><p>JavaScript is off. Use the Go now link, or wait: this page will forward you on its own.</p></noscript>
+</body>
+</html>
